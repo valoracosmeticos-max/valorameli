@@ -14,7 +14,229 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      order_items: {
+        Row: {
+          cost_price: number | null
+          created_at: string
+          id: string
+          ml_item_id: string
+          order_id: string
+          product_id: string | null
+          quantity: number
+          title: string
+          unit_price: number
+          user_id: string
+        }
+        Insert: {
+          cost_price?: number | null
+          created_at?: string
+          id?: string
+          ml_item_id: string
+          order_id: string
+          product_id?: string | null
+          quantity?: number
+          title: string
+          unit_price?: number
+          user_id: string
+        }
+        Update: {
+          cost_price?: number | null
+          created_at?: string
+          id?: string
+          ml_item_id?: string
+          order_id?: string
+          product_id?: string | null
+          quantity?: number
+          title?: string
+          unit_price?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          amount_received: number | null
+          created_at: string
+          date_created: string
+          id: string
+          ml_fees: number | null
+          ml_order_id: string
+          shipping_cost: number | null
+          status: string
+          store_id: string
+          total_amount: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_received?: number | null
+          created_at?: string
+          date_created: string
+          id?: string
+          ml_fees?: number | null
+          ml_order_id: string
+          shipping_cost?: number | null
+          status: string
+          store_id: string
+          total_amount?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_received?: number | null
+          created_at?: string
+          date_created?: string
+          id?: string
+          ml_fees?: number | null
+          ml_order_id?: string
+          shipping_cost?: number | null
+          status?: string
+          store_id?: string
+          total_amount?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          cost_price: number | null
+          created_at: string
+          id: string
+          ml_item_id: string
+          sku: string | null
+          store_id: string
+          thumbnail: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cost_price?: number | null
+          created_at?: string
+          id?: string
+          ml_item_id: string
+          sku?: string | null
+          store_id: string
+          thumbnail?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cost_price?: number | null
+          created_at?: string
+          id?: string
+          ml_item_id?: string
+          sku?: string | null
+          store_id?: string
+          thumbnail?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      stores: {
+        Row: {
+          access_token: string | null
+          created_at: string
+          id: string
+          last_sync_at: string | null
+          ml_nickname: string | null
+          ml_seller_id: string | null
+          name: string
+          refresh_token: string | null
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          ml_nickname?: string | null
+          ml_seller_id?: string | null
+          name: string
+          refresh_token?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          ml_nickname?: string | null
+          ml_seller_id?: string | null
+          name?: string
+          refresh_token?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
