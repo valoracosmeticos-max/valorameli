@@ -1,1 +1,4 @@
 project_id = "bulaobebfuruerltzbbe"
+
+[functions.ml-public-config]
+verify_jwt = false

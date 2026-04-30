@@ -3,8 +3,15 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import Index from "./pages/Index.tsx";
-import NotFound from "./pages/NotFound.tsx";
+import { ProtectedRoute } from "@/hooks/useAuth";
+import AppLayout from "@/components/AppLayout";
+import Index from "./pages/Index";
+import Pedidos from "./pages/Pedidos";
+import Produtos from "./pages/Produtos";
+import Configuracoes from "./pages/Configuracoes";
+import Auth from "./pages/Auth";
+import MLCallback from "./pages/MLCallback";
+import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
@@ -15,8 +22,14 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/auth/ml-callback" element={<ProtectedRoute><MLCallback /></ProtectedRoute>} />
+          <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+            <Route path="/" element={<Index />} />
+            <Route path="/pedidos" element={<Pedidos />} />
+            <Route path="/produtos" element={<Produtos />} />
+            <Route path="/configuracoes" element={<Configuracoes />} />
+          </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
