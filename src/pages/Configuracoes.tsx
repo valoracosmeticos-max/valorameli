@@ -9,7 +9,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud } from "lucide-react";
 import { format } from "date-fns";
 
 interface StoreRow {
@@ -43,6 +43,7 @@ const Configuracoes = () => {
   const [open, setOpen] = useState(false);
   const [storeName, setStoreName] = useState("");
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -104,6 +105,22 @@ const Configuracoes = () => {
       return;
     }
     toast.success("Token renovado");
+    load();
+  };
+
+  const syncStore = async (storeId: string) => {
+    setSyncingId(storeId);
+    toast.info("Sincronizando pedidos... isso pode levar alguns minutos.");
+    const { data, error } = await supabase.functions.invoke("ml-sync-orders", {
+      body: { store_id: storeId, days: 90 },
+    });
+    setSyncingId(null);
+    if (error) {
+      toast.error("Falha ao sincronizar: " + error.message);
+      return;
+    }
+    const sum = data?.summary?.[0];
+    toast.success(`Sincronização concluída: ${sum?.fetched ?? 0} pedido(s)`);
     load();
   };
 
@@ -197,9 +214,18 @@ const Configuracoes = () => {
                     {st.label}
                   </Badge>
                   <Button
+                    size="sm"
+                    onClick={() => syncStore(s.id)}
+                    disabled={syncingId === s.id}
+                  >
+                    <DownloadCloud className={`h-3.5 w-3.5 mr-1.5 ${syncingId === s.id ? "animate-pulse" : ""}`} />
+                    {syncingId === s.id ? "Sincronizando..." : "Sincronizar"}
+                  </Button>
+                  <Button
                     size="sm" variant="outline"
                     onClick={() => refreshToken(s.id)}
                     disabled={refreshingId === s.id}
+                    title="Renovar token"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${refreshingId === s.id ? "animate-spin" : ""}`} />
                   </Button>
