@@ -168,14 +168,39 @@ const Configuracoes = () => {
                 Dê um nome para identificar essa loja. Em seguida você será redirecionado ao Mercado Livre para autorizar o acesso.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2">
-              <Label htmlFor="store-name">Nome da loja</Label>
-              <Input
-                id="store-name"
-                placeholder="Ex: Loja 1 - Valora"
-                value={storeName}
-                onChange={(e) => setStoreName(e.target.value)}
-              />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="store-name">Nome da loja</Label>
+                <Input
+                  id="store-name"
+                  placeholder="Ex: Loja 2 - Madama"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                />
+              </div>
+
+              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-2">
+                <div className="flex gap-2">
+                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-medium">Atenção: o Mercado Livre conecta a conta logada no navegador</p>
+                    <p className="text-muted-foreground text-xs">
+                      Se você já está logado em outra conta ML (ex.: Valora) e quer conectar uma diferente (ex.: Madama), por padrão faremos o logout do ML antes de redirecionar, para que você possa entrar na conta certa.
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer pt-1">
+                  <Checkbox
+                    id="already-logged"
+                    checked={alreadyLogged}
+                    onCheckedChange={(v) => setAlreadyLogged(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Já estou logado na conta correta do Mercado Livre (não fazer logout)
+                  </span>
+                </label>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
