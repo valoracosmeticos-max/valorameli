@@ -9,7 +9,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud } from "lucide-react";
+import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud, Info } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 
 interface StoreRow {
@@ -42,6 +43,7 @@ const Configuracoes = () => {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [storeName, setStoreName] = useState("");
+  const [alreadyLogged, setAlreadyLogged] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
@@ -88,7 +90,13 @@ const Configuracoes = () => {
         code_challenge: challenge,
         code_challenge_method: "S256",
       });
-      window.location.href = `${ML_AUTH_BASE}?${params.toString()}`;
+      const authUrl = `${ML_AUTH_BASE}?${params.toString()}`;
+      if (alreadyLogged) {
+        window.location.href = authUrl;
+      } else {
+        // Force ML logout first so user can pick a different account
+        window.location.href = `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(authUrl)}`;
+      }
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao iniciar OAuth");
     }
@@ -160,14 +168,39 @@ const Configuracoes = () => {
                 Dê um nome para identificar essa loja. Em seguida você será redirecionado ao Mercado Livre para autorizar o acesso.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2">
-              <Label htmlFor="store-name">Nome da loja</Label>
-              <Input
-                id="store-name"
-                placeholder="Ex: Loja 1 - Valora"
-                value={storeName}
-                onChange={(e) => setStoreName(e.target.value)}
-              />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="store-name">Nome da loja</Label>
+                <Input
+                  id="store-name"
+                  placeholder="Ex: Loja 2 - Madama"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                />
+              </div>
+
+              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-2">
+                <div className="flex gap-2">
+                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-medium">Atenção: o Mercado Livre conecta a conta logada no navegador</p>
+                    <p className="text-muted-foreground text-xs">
+                      Se você já está logado em outra conta ML (ex.: Valora) e quer conectar uma diferente (ex.: Madama), por padrão faremos o logout do ML antes de redirecionar, para que você possa entrar na conta certa.
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer pt-1">
+                  <Checkbox
+                    id="already-logged"
+                    checked={alreadyLogged}
+                    onCheckedChange={(v) => setAlreadyLogged(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Já estou logado na conta correta do Mercado Livre (não fazer logout)
+                  </span>
+                </label>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
