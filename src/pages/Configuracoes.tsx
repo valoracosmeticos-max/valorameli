@@ -43,6 +43,7 @@ const Configuracoes = () => {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [storeName, setStoreName] = useState("");
+  const [alreadyLogged, setAlreadyLogged] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
