@@ -9,7 +9,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud } from "lucide-react";
+import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud, Info } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 
 interface StoreRow {
