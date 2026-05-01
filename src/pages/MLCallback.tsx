@@ -43,7 +43,7 @@ const MLCallback = () => {
       .invoke("ml-oauth-callback", {
         body: { code, redirect_uri: redirectUri, store_name: storeName, code_verifier: verifier },
       })
-      .then(({ data, error }) => {
+      .then(async ({ data, error }) => {
         sessionStorage.removeItem("ml_pkce_verifier");
         sessionStorage.removeItem("ml_store_name");
         sessionStorage.removeItem("ml_redirect_uri");
@@ -52,6 +52,31 @@ const MLCallback = () => {
           setMessage(data?.error ?? error?.message ?? "Falha ao trocar o código por um token.");
           return;
         }
+
+        // Detect "same ML account reconnected with a different name" case
+        const sellerId = data.seller_id ? String(data.seller_id) : null;
+        if (sellerId) {
+          const { data: matches } = await supabase
+            .from("stores")
+            .select("name, ml_seller_id")
+            .eq("ml_seller_id", sellerId);
+          const other = matches?.find((m: any) => m.name !== storeName);
+          if (other && matches && matches.length === 1) {
+            // Only one row exists for this seller and its name was just overwritten by our upsert.
+            // That means the user authorized the SAME ML account they had before, just renamed it.
+            // Heuristic: if the new name differs from typical "rename intent", warn them.
+            // We can't perfectly tell, so we only warn when the seller already had a store with a different name.
+          }
+          if (other) {
+            setStatus("error");
+            setMessage(
+              `Você autorizou a mesma conta ML que já está conectada como "${other.name}". ` +
+              `Para conectar outra loja, faça logout do Mercado Livre no navegador e tente novamente entrando com a conta correta.`,
+            );
+            return;
+          }
+        }
+
         setStatus("success");
         setMessage(`Loja conectada com sucesso${data.nickname ? ` (${data.nickname})` : ""}!`);
         setTimeout(() => nav("/configuracoes", { replace: true }), 1500);
