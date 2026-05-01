@@ -90,7 +90,13 @@ const Configuracoes = () => {
         code_challenge: challenge,
         code_challenge_method: "S256",
       });
-      window.location.href = `${ML_AUTH_BASE}?${params.toString()}`;
+      const authUrl = `${ML_AUTH_BASE}?${params.toString()}`;
+      if (alreadyLogged) {
+        window.location.href = authUrl;
+      } else {
+        // Force ML logout first so user can pick a different account
+        window.location.href = `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(authUrl)}`;
+      }
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao iniciar OAuth");
     }
