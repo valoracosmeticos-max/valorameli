@@ -159,7 +159,7 @@ const Index = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            {totals.count} pedido(s) · cancelados excluídos · Lucro = Recebido − Custo − Tarifa ML − Frete − Custos Adicionais
+            {totals.count} pedido(s) · cancelados excluídos · Lucro = Recebido (líquido de tarifa ML) − Custo Produto − Frete − Custos Adicionais
           </p>
         </div>
         <div className="flex gap-2">
