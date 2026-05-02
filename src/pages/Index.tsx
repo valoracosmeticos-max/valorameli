@@ -107,7 +107,8 @@ const Index = () => {
       shipping += o.shipping_cost;
       cost += costByOrder.get(o.id) ?? 0;
     });
-    const profit = received - cost - fees - shipping - additionalForPeriod;
+    // amount_received já vem líquido de ml_fees (calculado no sync)
+    const profit = received - cost - shipping - additionalForPeriod;
     const margin = received > 0 ? (profit / received) * 100 : 0;
     return { revenue, received, fees, cost, profit, margin, additional: additionalForPeriod, count: filtered.length };
   }, [filtered, costByOrder, additionalForPeriod]);
@@ -125,7 +126,7 @@ const Index = () => {
       if (!b) return;
       const c = costByOrder.get(o.id) ?? 0;
       b.revenue += o.amount_received;
-      b.profit += o.amount_received - c - o.ml_fees - o.shipping_cost;
+      b.profit += o.amount_received - c - o.shipping_cost;
     });
     return Array.from(buckets.values());
   }, [filtered, costByOrder, period]);
@@ -136,7 +137,7 @@ const Index = () => {
       const name = stores.find((s) => s.id === o.store_id)?.name ?? "—";
       const cur = map.get(o.store_id) ?? { name, revenue: 0, profit: 0 };
       cur.revenue += o.amount_received;
-      cur.profit += o.amount_received - (costByOrder.get(o.id) ?? 0) - o.ml_fees - o.shipping_cost;
+      cur.profit += o.amount_received - (costByOrder.get(o.id) ?? 0) - o.shipping_cost;
       map.set(o.store_id, cur);
     });
     return Array.from(map.values());
@@ -158,7 +159,7 @@ const Index = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            {totals.count} pedido(s) · cancelados excluídos · Lucro = Recebido − Custo − Tarifa ML − Frete − Custos Adicionais
+            {totals.count} pedido(s) · cancelados excluídos · Lucro = Recebido (líquido de tarifa ML) − Custo Produto − Frete − Custos Adicionais
           </p>
         </div>
         <div className="flex gap-2">

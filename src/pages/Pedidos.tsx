@@ -91,7 +91,8 @@ const Pedidos = () => {
   const computeProfit = (o: OrderRow) => {
     const its = itemsByOrder.get(o.id) ?? [];
     const cost = its.reduce((acc, i) => acc + i.cost_price * i.quantity, 0);
-    const profit = (o.amount_received || 0) - cost - (o.ml_fees || 0) - (o.shipping_cost || 0);
+    // amount_received já é líquido de ml_fees (calculado no sync)
+    const profit = (o.amount_received || 0) - cost - (o.shipping_cost || 0);
     return { cost, profit };
   };
 

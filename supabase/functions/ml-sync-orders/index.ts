@@ -121,19 +121,24 @@ Deno.serve(async (req) => {
         if (results.length === 0) break;
 
         for (const o of results) {
+          const mlFees = (o.order_items ?? []).reduce(
+            (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
+            0,
+          );
+          // Faturamento bruto = valor total pago pelo comprador (itens + frete pago por ele)
+          const grossPaid = Number(o.paid_amount ?? o.total_amount ?? 0);
+          // Recebido líquido = bruto - tarifa do ML
+          const netReceived = Math.max(0, grossPaid - mlFees);
           const orderRow = {
             user_id: userId,
             store_id: store.id,
             ml_order_id: String(o.id),
             date_created: o.date_created,
             status: o.status,
-            total_amount: Number(o.total_amount ?? 0),
-            amount_received: Number(o.paid_amount ?? o.total_amount ?? 0),
+            total_amount: grossPaid,
+            amount_received: netReceived,
             shipping_cost: 0,
-            ml_fees: (o.order_items ?? []).reduce(
-              (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
-              0,
-            ),
+            ml_fees: mlFees,
           };
 
           // Upsert order
