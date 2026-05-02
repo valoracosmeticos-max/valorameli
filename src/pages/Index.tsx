@@ -145,7 +145,8 @@ const Index = () => {
   const cards = [
     { label: "Faturamento", value: fmtBRL(totals.revenue), icon: DollarSign, color: "text-primary" },
     { label: "Recebido", value: fmtBRL(totals.received), icon: Wallet, color: "text-success" },
-    { label: "Custo total", value: fmtBRL(totals.cost), icon: Package, color: "text-warning" },
+    { label: "Custo produtos", value: fmtBRL(totals.cost), icon: Package, color: "text-warning" },
+    { label: "Custos adicionais", value: fmtBRL(totals.additional), icon: Wallet, color: "text-warning" },
     { label: "Lucro", value: fmtBRL(totals.profit), icon: totals.profit >= 0 ? TrendingUp : TrendingDown,
       color: totals.profit >= 0 ? "text-success" : "text-destructive" },
     { label: "Margem", value: `${totals.margin.toFixed(1)}%`, icon: Percent, color: "text-muted-foreground" },
