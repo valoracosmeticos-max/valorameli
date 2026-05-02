@@ -158,7 +158,7 @@ const Index = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            {totals.count} pedido(s) considerado(s) · pedidos cancelados excluídos
+            {totals.count} pedido(s) · cancelados excluídos · Lucro = Recebido − Custo − Tarifa ML − Frete − Custos Adicionais
           </p>
         </div>
         <div className="flex gap-2">
@@ -193,7 +193,7 @@ const Index = () => {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {cards.map((c) => (
           <Card key={c.label} className="shadow-soft border-border/60">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
