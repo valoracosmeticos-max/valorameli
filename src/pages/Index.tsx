@@ -126,7 +126,7 @@ const Index = () => {
       if (!b) return;
       const c = costByOrder.get(o.id) ?? 0;
       b.revenue += o.amount_received;
-      b.profit += o.amount_received - c - o.ml_fees - o.shipping_cost;
+      b.profit += o.amount_received - c - o.shipping_cost;
     });
     return Array.from(buckets.values());
   }, [filtered, costByOrder, period]);
