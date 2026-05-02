@@ -70,12 +70,22 @@ const Produtos = () => {
     }
     setSavingId(p.id);
     const { error } = await supabase.from("products").update({ cost_price: value }).eq("id", p.id);
-    setSavingId(null);
     if (error) {
+      setSavingId(null);
       toast.error(error.message);
       return;
     }
-    toast.success("Custo atualizado");
+    // Propaga para os order_items existentes (atualiza pedidos e dashboard)
+    const { error: itemsErr, count } = await supabase
+      .from("order_items")
+      .update({ cost_price: value }, { count: "exact" })
+      .eq("product_id", p.id);
+    setSavingId(null);
+    if (itemsErr) {
+      toast.warning("Custo salvo, mas falhou ao atualizar pedidos: " + itemsErr.message);
+    } else {
+      toast.success(`Custo atualizado · ${count ?? 0} item(ns) de pedidos recalculado(s)`);
+    }
     setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, cost_price: value } : x)));
     setEdits((prev) => {
       const n = { ...prev };

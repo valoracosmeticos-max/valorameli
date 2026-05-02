@@ -9,8 +9,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud, Info } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud, Info, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 
 interface StoreRow {
@@ -23,27 +22,15 @@ interface StoreRow {
   created_at: string;
 }
 
-const ML_AUTH_BASE = "https://auth.mercadolivre.com.br/authorization";
-const REDIRECT_PATH = "/auth/ml-callback";
-
-async function generatePKCE() {
-  const random = new Uint8Array(32);
-  crypto.getRandomValues(random);
-  const verifier = btoa(String.fromCharCode(...random))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const enc = new TextEncoder().encode(verifier);
-  const hash = await crypto.subtle.digest("SHA-256", enc);
-  const challenge = btoa(String.fromCharCode(...new Uint8Array(hash)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return { verifier, challenge };
-}
-
 const Configuracoes = () => {
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [storeName, setStoreName] = useState("");
-  const [alreadyLogged, setAlreadyLogged] = useState(false);
+  const [sellerId, setSellerId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [refreshTokenInput, setRefreshTokenInput] = useState("");
+  const [saving, setSaving] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
@@ -60,45 +47,89 @@ const Configuracoes = () => {
 
   useEffect(() => { load(); }, []);
 
-  const startOAuth = async () => {
-    if (!storeName.trim()) {
-      toast.error("Informe um nome para a loja");
-      return;
-    }
-    // ML_CLIENT_ID is server-side only. We need it client-side to start OAuth.
-    // Use a public env or fetch from a small edge function. Here we ask the user
-    // to set it in a discoverable way: read from window or prompt fallback.
-    // Solution: store client_id in the stores via secret-bridge endpoint. For
-    // simplicity we use a tiny edge function "ml-public-config" to expose it.
+  const resetForm = () => {
+    setStoreName("");
+    setSellerId("");
+    setAccessToken("");
+    setRefreshTokenInput("");
+  };
+
+  const saveManualToken = async () => {
+    if (!storeName.trim()) return toast.error("Informe o nome da loja");
+    if (!sellerId.trim()) return toast.error("Informe o Seller ID (User ID do ML)");
+    if (!accessToken.trim()) return toast.error("Informe o Access Token");
+
+    setSaving(true);
     try {
-      const { data, error } = await supabase.functions.invoke("ml-public-config");
-      if (error || !data?.client_id) {
-        toast.error("Não foi possível obter o Client ID do Mercado Livre");
+      // Valida o token contra a API do ML para confirmar seller_id e capturar nickname
+      const meResp = await fetch("https://api.mercadolibre.com/users/me", {
+        headers: { Authorization: `Bearer ${accessToken.trim()}` },
+      });
+      if (!meResp.ok) {
+        toast.error("Access Token inválido ou expirado. Verifique e tente novamente.");
+        setSaving(false);
         return;
       }
-      const clientId = data.client_id as string;
-      const redirectUri = `${window.location.origin}${REDIRECT_PATH}`;
-      const { verifier, challenge } = await generatePKCE();
-      sessionStorage.setItem("ml_pkce_verifier", verifier);
-      sessionStorage.setItem("ml_store_name", storeName);
-      sessionStorage.setItem("ml_redirect_uri", redirectUri);
+      const me = await meResp.json();
+      const realSellerId = String(me.id);
+      const nickname = me.nickname ?? null;
 
-      const params = new URLSearchParams({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        code_challenge: challenge,
-        code_challenge_method: "S256",
-      });
-      const authUrl = `${ML_AUTH_BASE}?${params.toString()}`;
-      if (alreadyLogged) {
-        window.location.href = authUrl;
-      } else {
-        // Force ML logout first so user can pick a different account
-        window.location.href = `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(authUrl)}`;
+      if (realSellerId !== sellerId.trim()) {
+        toast.warning(`O token pertence ao Seller ${realSellerId} (${nickname}). Vou salvar com este ID.`);
       }
+
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        toast.error("Sessão expirada");
+        setSaving(false);
+        return;
+      }
+
+      // Tokens do ML duram 6h
+      const expiresAt = new Date(Date.now() + 6 * 3600 * 1000).toISOString();
+
+      // Verifica se já existe loja com esse seller_id
+      const { data: existing } = await supabase
+        .from("stores")
+        .select("id")
+        .eq("user_id", userData.user.id)
+        .eq("ml_seller_id", realSellerId)
+        .maybeSingle();
+
+      if (existing) {
+        const { error } = await supabase
+          .from("stores")
+          .update({
+            name: storeName.trim(),
+            access_token: accessToken.trim(),
+            refresh_token: refreshTokenInput.trim() || null,
+            token_expires_at: expiresAt,
+            ml_nickname: nickname,
+          })
+          .eq("id", existing.id);
+        if (error) throw error;
+        toast.success(`Loja "${storeName}" atualizada (${nickname})`);
+      } else {
+        const { error } = await supabase.from("stores").insert({
+          user_id: userData.user.id,
+          name: storeName.trim(),
+          ml_seller_id: realSellerId,
+          ml_nickname: nickname,
+          access_token: accessToken.trim(),
+          refresh_token: refreshTokenInput.trim() || null,
+          token_expires_at: expiresAt,
+        });
+        if (error) throw error;
+        toast.success(`Loja "${storeName}" conectada (${nickname})`);
+      }
+
+      resetForm();
+      setOpen(false);
+      load();
     } catch (e: any) {
-      toast.error(e.message ?? "Erro ao iniciar OAuth");
+      toast.error(e.message ?? "Erro ao salvar");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -109,7 +140,7 @@ const Configuracoes = () => {
     });
     setRefreshingId(null);
     if (error) {
-      toast.error("Falha ao renovar token");
+      toast.error("Falha ao renovar token. Verifique se o refresh token está cadastrado.");
       return;
     }
     toast.success("Token renovado");
@@ -155,56 +186,91 @@ const Configuracoes = () => {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Configurações</h1>
-          <p className="text-muted-foreground mt-1">Gerencie a conexão com suas lojas Mercado Livre</p>
+          <p className="text-muted-foreground mt-1">Conecte suas lojas usando os tokens gerados no painel de Devs do Mercado Livre</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />Conectar Loja</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Conectar nova loja</DialogTitle>
               <DialogDescription>
-                Dê um nome para identificar essa loja. Em seguida você será redirecionado ao Mercado Livre para autorizar o acesso.
+                Cole abaixo o Seller ID, Access Token e Refresh Token gerados no painel de desenvolvedores do Mercado Livre.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="store-name">Nome da loja</Label>
-                <Input
-                  id="store-name"
-                  placeholder="Ex: Loja 2 - Madama"
-                  value={storeName}
-                  onChange={(e) => setStoreName(e.target.value)}
-                />
-              </div>
 
-              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-2">
-                <div className="flex gap-2">
-                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="font-medium">Atenção: o Mercado Livre conecta a conta logada no navegador</p>
-                    <p className="text-muted-foreground text-xs">
-                      Se você já está logado em outra conta ML (ex.: Valora) e quer conectar uma diferente (ex.: Madama), por padrão faremos o logout do ML antes de redirecionar, para que você possa entrar na conta certa.
-                    </p>
-                  </div>
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-xs space-y-2">
+              <div className="flex gap-2">
+                <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-medium text-foreground">Como obter os tokens</p>
+                  <p className="text-muted-foreground">
+                    Acesse <span className="font-mono">developers.mercadolivre.com.br</span> → sua aplicação → use o flow OAuth para gerar os tokens dessa conta de vendedor específica e cole aqui.
+                  </p>
+                  <a
+                    href="https://developers.mercadolivre.com.br/devcenter"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    Abrir Dev Center <ExternalLink className="h-3 w-3" />
+                  </a>
                 </div>
-                <label className="flex items-start gap-2 cursor-pointer pt-1">
-                  <Checkbox
-                    id="already-logged"
-                    checked={alreadyLogged}
-                    onCheckedChange={(v) => setAlreadyLogged(v === true)}
-                    className="mt-0.5"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Já estou logado na conta correta do Mercado Livre (não fazer logout)
-                  </span>
-                </label>
               </div>
             </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="store-name">Nome da loja *</Label>
+                <Input
+                  id="store-name"
+                  placeholder="Ex: Loja Madama"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                  maxLength={80}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="seller-id">Seller ID (User ID) *</Label>
+                <Input
+                  id="seller-id"
+                  placeholder="Ex: 123456789"
+                  value={sellerId}
+                  onChange={(e) => setSellerId(e.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="access-token">Access Token *</Label>
+                <Input
+                  id="access-token"
+                  placeholder="APP_USR-..."
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="refresh-token">Refresh Token (recomendado)</Label>
+                <Input
+                  id="refresh-token"
+                  placeholder="TG-..."
+                  value={refreshTokenInput}
+                  onChange={(e) => setRefreshTokenInput(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Sem o refresh token, o access token expira em 6h e precisa ser atualizado manualmente.
+                </p>
+              </div>
+            </div>
+
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button onClick={startOAuth}>Continuar para o Mercado Livre</Button>
+              <Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>Cancelar</Button>
+              <Button onClick={saveManualToken} disabled={saving}>
+                {saving ? "Validando..." : "Salvar e validar"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -258,7 +324,7 @@ const Configuracoes = () => {
                     size="sm" variant="outline"
                     onClick={() => refreshToken(s.id)}
                     disabled={refreshingId === s.id}
-                    title="Renovar token"
+                    title="Renovar token via refresh_token"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${refreshingId === s.id ? "animate-spin" : ""}`} />
                   </Button>
