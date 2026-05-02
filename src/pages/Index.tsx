@@ -137,7 +137,7 @@ const Index = () => {
       const name = stores.find((s) => s.id === o.store_id)?.name ?? "—";
       const cur = map.get(o.store_id) ?? { name, revenue: 0, profit: 0 };
       cur.revenue += o.amount_received;
-      cur.profit += o.amount_received - (costByOrder.get(o.id) ?? 0) - o.ml_fees - o.shipping_cost;
+      cur.profit += o.amount_received - (costByOrder.get(o.id) ?? 0) - o.shipping_cost;
       map.set(o.store_id, cur);
     });
     return Array.from(map.values());
