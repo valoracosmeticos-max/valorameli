@@ -107,7 +107,8 @@ const Index = () => {
       shipping += o.shipping_cost;
       cost += costByOrder.get(o.id) ?? 0;
     });
-    const profit = received - cost - fees - shipping - additionalForPeriod;
+    // amount_received já vem líquido de ml_fees (calculado no sync)
+    const profit = received - cost - shipping - additionalForPeriod;
     const margin = received > 0 ? (profit / received) * 100 : 0;
     return { revenue, received, fees, cost, profit, margin, additional: additionalForPeriod, count: filtered.length };
   }, [filtered, costByOrder, additionalForPeriod]);
