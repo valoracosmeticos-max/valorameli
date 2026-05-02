@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      additional_costs: {
+        Row: {
+          amount: number
+          category: string | null
+          cost_date: string
+          cost_type: string
+          created_at: string
+          description: string
+          id: string
+          notes: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          category?: string | null
+          cost_date?: string
+          cost_type?: string
+          created_at?: string
+          description: string
+          id?: string
+          notes?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          category?: string | null
+          cost_date?: string
+          cost_type?: string
+          created_at?: string
+          description?: string
+          id?: string
+          notes?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       order_items: {
         Row: {
           cost_price: number | null

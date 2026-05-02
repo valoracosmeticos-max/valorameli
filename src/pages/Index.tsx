@@ -24,6 +24,9 @@ interface OrderRow {
 }
 interface ItemRow { order_id: string; quantity: number; cost_price: number }
 interface StoreRow { id: string; name: string }
+interface AddCostRow {
+  amount: number; cost_type: "fixed" | "sporadic"; cost_date: string;
+}
 
 const fmtBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -32,6 +35,7 @@ const Index = () => {
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [addCosts, setAddCosts] = useState<AddCostRow[]>([]);
   const [period, setPeriod] = useState<string>("30");
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
@@ -39,17 +43,19 @@ const Index = () => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [{ data: s }, { data: o }, { data: it }] = await Promise.all([
+      const [{ data: s }, { data: o }, { data: it }, { data: ac }] = await Promise.all([
         supabase.from("stores").select("id, name"),
         supabase.from("orders")
           .select("id, store_id, status, date_created, total_amount, amount_received, ml_fees, shipping_cost")
           .order("date_created", { ascending: false })
           .limit(2000),
         supabase.from("order_items").select("order_id, quantity, cost_price"),
+        supabase.from("additional_costs").select("amount, cost_type, cost_date"),
       ]);
       setStores(s ?? []);
       setOrders((o ?? []) as OrderRow[]);
       setItems((it ?? []) as ItemRow[]);
+      setAddCosts((ac ?? []) as AddCostRow[]);
       setLoading(false);
     })();
   }, []);
@@ -73,6 +79,25 @@ const Index = () => {
     });
   }, [orders, period, storeFilter]);
 
+  // Custos adicionais alocados ao período selecionado
+  const additionalForPeriod = useMemo(() => {
+    const days = Number(period);
+    const since = startOfDay(subDays(new Date(), days - 1)).getTime();
+    const now = Date.now();
+    let total = 0;
+    addCosts.forEach((c) => {
+      const amt = Number(c.amount) || 0;
+      if (c.cost_type === "fixed") {
+        // proporcional: valor mensal × (dias do período / 30)
+        total += amt * (days / 30);
+      } else {
+        const d = new Date(c.cost_date + "T00:00").getTime();
+        if (d >= since && d <= now) total += amt;
+      }
+    });
+    return total;
+  }, [addCosts, period]);
+
   const totals = useMemo(() => {
     let revenue = 0, received = 0, fees = 0, cost = 0, shipping = 0;
     filtered.forEach((o) => {
@@ -82,10 +107,10 @@ const Index = () => {
       shipping += o.shipping_cost;
       cost += costByOrder.get(o.id) ?? 0;
     });
-    const profit = received - cost - fees - shipping;
+    const profit = received - cost - fees - shipping - additionalForPeriod;
     const margin = received > 0 ? (profit / received) * 100 : 0;
-    return { revenue, received, fees, cost, profit, margin, count: filtered.length };
-  }, [filtered, costByOrder]);
+    return { revenue, received, fees, cost, profit, margin, additional: additionalForPeriod, count: filtered.length };
+  }, [filtered, costByOrder, additionalForPeriod]);
 
   const dailyData = useMemo(() => {
     const days = Number(period);
@@ -120,7 +145,8 @@ const Index = () => {
   const cards = [
     { label: "Faturamento", value: fmtBRL(totals.revenue), icon: DollarSign, color: "text-primary" },
     { label: "Recebido", value: fmtBRL(totals.received), icon: Wallet, color: "text-success" },
-    { label: "Custo total", value: fmtBRL(totals.cost), icon: Package, color: "text-warning" },
+    { label: "Custo produtos", value: fmtBRL(totals.cost), icon: Package, color: "text-warning" },
+    { label: "Custos adicionais", value: fmtBRL(totals.additional), icon: Wallet, color: "text-warning" },
     { label: "Lucro", value: fmtBRL(totals.profit), icon: totals.profit >= 0 ? TrendingUp : TrendingDown,
       color: totals.profit >= 0 ? "text-success" : "text-destructive" },
     { label: "Margem", value: `${totals.margin.toFixed(1)}%`, icon: Percent, color: "text-muted-foreground" },
@@ -132,7 +158,7 @@ const Index = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            {totals.count} pedido(s) considerado(s) · pedidos cancelados excluídos
+            {totals.count} pedido(s) · cancelados excluídos · Lucro = Recebido − Custo − Tarifa ML − Frete − Custos Adicionais
           </p>
         </div>
         <div className="flex gap-2">
@@ -167,7 +193,7 @@ const Index = () => {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {cards.map((c) => (
           <Card key={c.label} className="shadow-soft border-border/60">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
