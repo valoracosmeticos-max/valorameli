@@ -79,6 +79,25 @@ const Index = () => {
     });
   }, [orders, period, storeFilter]);
 
+  // Custos adicionais alocados ao período selecionado
+  const additionalForPeriod = useMemo(() => {
+    const days = Number(period);
+    const since = startOfDay(subDays(new Date(), days - 1)).getTime();
+    const now = Date.now();
+    let total = 0;
+    addCosts.forEach((c) => {
+      const amt = Number(c.amount) || 0;
+      if (c.cost_type === "fixed") {
+        // proporcional: valor mensal × (dias do período / 30)
+        total += amt * (days / 30);
+      } else {
+        const d = new Date(c.cost_date + "T00:00").getTime();
+        if (d >= since && d <= now) total += amt;
+      }
+    });
+    return total;
+  }, [addCosts, period]);
+
   const totals = useMemo(() => {
     let revenue = 0, received = 0, fees = 0, cost = 0, shipping = 0;
     filtered.forEach((o) => {
@@ -88,10 +107,10 @@ const Index = () => {
       shipping += o.shipping_cost;
       cost += costByOrder.get(o.id) ?? 0;
     });
-    const profit = received - cost - fees - shipping;
+    const profit = received - cost - fees - shipping - additionalForPeriod;
     const margin = received > 0 ? (profit / received) * 100 : 0;
-    return { revenue, received, fees, cost, profit, margin, count: filtered.length };
-  }, [filtered, costByOrder]);
+    return { revenue, received, fees, cost, profit, margin, additional: additionalForPeriod, count: filtered.length };
+  }, [filtered, costByOrder, additionalForPeriod]);
 
   const dailyData = useMemo(() => {
     const days = Number(period);
