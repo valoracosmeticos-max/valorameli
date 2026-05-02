@@ -24,6 +24,9 @@ interface OrderRow {
 }
 interface ItemRow { order_id: string; quantity: number; cost_price: number }
 interface StoreRow { id: string; name: string }
+interface AddCostRow {
+  amount: number; cost_type: "fixed" | "sporadic"; cost_date: string;
+}
 
 const fmtBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -32,6 +35,7 @@ const Index = () => {
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [addCosts, setAddCosts] = useState<AddCostRow[]>([]);
   const [period, setPeriod] = useState<string>("30");
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
@@ -39,17 +43,19 @@ const Index = () => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [{ data: s }, { data: o }, { data: it }] = await Promise.all([
+      const [{ data: s }, { data: o }, { data: it }, { data: ac }] = await Promise.all([
         supabase.from("stores").select("id, name"),
         supabase.from("orders")
           .select("id, store_id, status, date_created, total_amount, amount_received, ml_fees, shipping_cost")
           .order("date_created", { ascending: false })
           .limit(2000),
         supabase.from("order_items").select("order_id, quantity, cost_price"),
+        supabase.from("additional_costs").select("amount, cost_type, cost_date"),
       ]);
       setStores(s ?? []);
       setOrders((o ?? []) as OrderRow[]);
       setItems((it ?? []) as ItemRow[]);
+      setAddCosts((ac ?? []) as AddCostRow[]);
       setLoading(false);
     })();
   }, []);
