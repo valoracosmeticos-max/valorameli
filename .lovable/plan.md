@@ -1,48 +1,51 @@
-## Problema
+# Corrigir conexão de novas lojas (Failed to fetch)
 
-O Mercado Livre não tem um parâmetro tipo `prompt=select_account` (Google) no fluxo OAuth. Ele simplesmente reaproveita a sessão do navegador: se você já está logado na Loja 1, o "Autorizar" devolve um token da Loja 1 — independentemente de qual loja você queira conectar. Por isso clicar em "Continuar para o Mercado Livre" sempre acaba conectando a mesma loja.
+## Causa raiz
+O modal "Conectar nova loja" valida o Access Token chamando `https://api.mercadolibre.com/users/me` **diretamente do navegador**. A API do Mercado Livre não envia headers CORS, então o navegador bloqueia a chamada e retorna `Failed to fetch` — antes de qualquer validação acontecer. Isso impede salvar qualquer loja nova.
 
 ## Solução
 
-Forçar o logout da sessão atual do Mercado Livre antes de redirecionar para a tela de autorização. Assim o ML pede login novamente e o usuário escolhe em qual conta entrar (Valora ou Madama).
+### 1. Nova edge function `ml-connect-store`
+Criar `supabase/functions/ml-connect-store/index.ts` que:
+- Recebe `{ store_name, seller_id, access_token, refresh_token }` do frontend (com Authorization do usuário logado).
+- Chama `https://api.mercadolibre.com/users/me` **do servidor** (sem CORS) para validar o token e obter `id` (seller real) + `nickname`.
+- Se o token for inválido → retorna 400 com mensagem clara.
+- Se o `seller_id` informado não bater com o do token → usa o do token e avisa.
+- Faz upsert na tabela `stores` por `(user_id, ml_seller_id)`:
+  - Se já existe loja com esse seller para o usuário → atualiza nome/tokens.
+  - Caso contrário → insere nova linha (permitindo **múltiplas lojas** por usuário).
+- Define `token_expires_at = now + 6h`.
+- Usa `SUPABASE_SERVICE_ROLE_KEY` para gravar (RLS já garante que o `user_id` vem do JWT validado).
 
-### Fluxo novo
+Configuração: deploy automático; manter `verify_jwt` padrão (true) para proteger.
 
-```text
-1. Usuário clica "Conectar Loja"
-2. Diálogo mostra:
-   - Campo "Nome da loja"
-   - Aviso explicando que será deslogado do ML e precisará entrar com a conta da loja desejada
-   - Checkbox "Já estou logado na conta correta do Mercado Livre" (pula o logout)
-3. Clica "Continuar"
-4. Se checkbox NÃO marcado → abre https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=<URL_AUTH_ML> 
-   numa nova aba (ou mesma aba). O ML desloga e redireciona para a tela de login/autorização.
-5. Usuário entra com a conta correta e autoriza.
-6. Callback grava a nova loja (upsert por user_id + ml_seller_id).
+### 2. Atualizar `src/pages/Configuracoes.tsx`
+Substituir o bloco `saveManualToken` que usa `fetch(...mercadolibre...)` + `supabase.from("stores").insert/update` por uma única chamada:
+
+```ts
+const { data, error } = await supabase.functions.invoke("ml-connect-store", {
+  body: { store_name, seller_id, access_token, refresh_token }
+});
 ```
 
-### Proteção extra contra duplicidade
+Tratar:
+- `error` → toast com mensagem do servidor (ex.: "Token inválido").
+- sucesso → toast com nickname retornado, fechar modal, recarregar lista.
 
-No `MLCallback.tsx`, depois de receber o `seller_id` da resposta, comparar com as lojas já cadastradas. Se o seller_id retornado for igual ao de uma loja já existente **com nome diferente** do que o usuário acabou de digitar, mostrar aviso: *"Você autorizou a mesma conta ML que já está conectada como 'Loja X'. Faça logout do Mercado Livre e tente novamente com a outra conta."* — e não sobrescrever silenciosamente.
+Manter o resto da página intacto (lista de lojas, sync, refresh, remover).
 
-## Mudanças técnicas
+### 3. Garantir suporte a múltiplas lojas
+Já está suportado no modelo (`stores` é por `user_id`, sem unique global em `ml_seller_id`). A edge function faz upsert por `(user_id, ml_seller_id)`, então:
+- Tokens diferentes de **vendedores diferentes** → criam lojas separadas.
+- Mesmo vendedor → atualiza a loja existente (evita duplicata).
 
-**`src/pages/Configuracoes.tsx`**
-- Adicionar texto explicativo no `DialogContent` sobre a necessidade de estar logado na conta correta do ML.
-- Adicionar `Checkbox` "Já estou logado na conta correta do Mercado Livre no navegador".
-- Em `startOAuth()`:
-  - Construir a URL de autorização ML como hoje.
-  - Se checkbox **desmarcado**: redirecionar para  
-    `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=<encodeURIComponent(authUrl)>`
-  - Se **marcado**: redirecionar direto para `authUrl` (comportamento atual).
+Cada loja segue isolada no Dashboard e Pedidos pelo `store_id` (já implementado).
 
-**`src/pages/MLCallback.tsx`**
-- Antes de chamar `ml-oauth-callback`, buscar `stores` existentes (seller_ids).
-- Após o callback retornar `seller_id`, se ele já pertencia a uma loja com **nome diferente** do `ml_store_name` em sessionStorage, exibir mensagem de erro clara orientando refazer com logout, e **não** considerar como sucesso visual (a função já fez upsert; opcionalmente reverter o nome para o anterior — fora de escopo, apenas avisar).
+## Arquivos
+- **Criar**: `supabase/functions/ml-connect-store/index.ts`
+- **Editar**: `src/pages/Configuracoes.tsx` (apenas a função `saveManualToken`)
 
-**Backend**: nenhum alteração necessária. O `ml-oauth-callback` já faz upsert por `(user_id, ml_seller_id)` corretamente.
-
-## Fora de escopo
-
-- Inserção manual de tokens (descartada).
-- Popup/janela anônima (não confiável entre navegadores).
+## Resultado esperado
+- "Failed to fetch" desaparece.
+- Usuário cola Seller ID + Access Token + Refresh Token de qualquer loja e ela é validada e salva.
+- Várias lojas podem ser conectadas e aparecem separadas na listagem, cada uma com sync/refresh independentes.

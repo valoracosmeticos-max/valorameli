@@ -61,73 +61,43 @@ const Configuracoes = () => {
 
     setSaving(true);
     try {
-      // Valida o token contra a API do ML para confirmar seller_id e capturar nickname
-      const meResp = await fetch("https://api.mercadolibre.com/users/me", {
-        headers: { Authorization: `Bearer ${accessToken.trim()}` },
-      });
-      if (!meResp.ok) {
-        toast.error("Access Token inválido ou expirado. Verifique e tente novamente.");
-        setSaving(false);
-        return;
-      }
-      const me = await meResp.json();
-      const realSellerId = String(me.id);
-      const nickname = me.nickname ?? null;
-
-      if (realSellerId !== sellerId.trim()) {
-        toast.warning(`O token pertence ao Seller ${realSellerId} (${nickname}). Vou salvar com este ID.`);
-      }
-
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) {
-        toast.error("Sessão expirada");
-        setSaving(false);
-        return;
-      }
-
-      // Tokens do ML duram 6h
-      const expiresAt = new Date(Date.now() + 6 * 3600 * 1000).toISOString();
-
-      // Verifica se já existe loja com esse seller_id
-      const { data: existing } = await supabase
-        .from("stores")
-        .select("id")
-        .eq("user_id", userData.user.id)
-        .eq("ml_seller_id", realSellerId)
-        .maybeSingle();
-
-      if (existing) {
-        const { error } = await supabase
-          .from("stores")
-          .update({
-            name: storeName.trim(),
-            access_token: accessToken.trim(),
-            refresh_token: refreshTokenInput.trim() || null,
-            token_expires_at: expiresAt,
-            ml_nickname: nickname,
-          })
-          .eq("id", existing.id);
-        if (error) throw error;
-        toast.success(`Loja "${storeName}" atualizada (${nickname})`);
-      } else {
-        const { error } = await supabase.from("stores").insert({
-          user_id: userData.user.id,
-          name: storeName.trim(),
-          ml_seller_id: realSellerId,
-          ml_nickname: nickname,
+      const { data, error } = await supabase.functions.invoke("ml-connect-store", {
+        body: {
+          store_name: storeName.trim(),
+          seller_id: sellerId.trim(),
           access_token: accessToken.trim(),
-          refresh_token: refreshTokenInput.trim() || null,
-          token_expires_at: expiresAt,
-        });
-        if (error) throw error;
-        toast.success(`Loja "${storeName}" conectada (${nickname})`);
+          refresh_token: refreshTokenInput.trim() || undefined,
+        },
+      });
+
+      if (error) {
+        // Try to extract server message
+        const ctx: any = (error as any).context;
+        let serverMsg: string | null = null;
+        try {
+          if (ctx && typeof ctx.json === "function") {
+            const j = await ctx.json();
+            serverMsg = j?.error ?? null;
+          }
+        } catch (_) {}
+        toast.error(serverMsg ?? error.message ?? "Falha ao conectar loja");
+        return;
       }
+
+      if (data?.mismatch) {
+        toast.warning(`O token pertence ao Seller ${data.seller_id} (${data.nickname ?? "—"}). Salvo com esse ID.`);
+      }
+      toast.success(
+        data?.updated
+          ? `Loja "${storeName}" atualizada${data?.nickname ? ` (${data.nickname})` : ""}`
+          : `Loja "${storeName}" conectada${data?.nickname ? ` (${data.nickname})` : ""}`
+      );
 
       resetForm();
       setOpen(false);
       load();
     } catch (e: any) {
-      toast.error(e.message ?? "Erro ao salvar");
+      toast.error(e?.message ?? "Erro ao salvar");
     } finally {
       setSaving(false);
     }
