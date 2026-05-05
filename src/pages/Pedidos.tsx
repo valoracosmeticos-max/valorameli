@@ -2,13 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ShoppingCart, Search } from "lucide-react";
+import { ShoppingCart, Search, Pencil } from "lucide-react";
 import { format } from "date-fns";
 
 interface OrderRow {
@@ -40,6 +45,8 @@ const statusVariant = (s: string): "default" | "secondary" | "destructive" | "ou
   return "secondary";
 };
 
+const STATUS_OPTIONS = ["paid", "confirmed", "cancelled", "pending", "invalid"];
+
 const Pedidos = () => {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -49,24 +56,34 @@ const Pedidos = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const [{ data: storesData }, { data: ordersData, error }, { data: itemsData }] = await Promise.all([
-        supabase.from("stores").select("id, name"),
-        supabase.from("orders")
-          .select("id, store_id, ml_order_id, date_created, status, total_amount, amount_received, ml_fees, shipping_cost")
-          .order("date_created", { ascending: false })
-          .limit(1000),
-        supabase.from("order_items").select("order_id, title, quantity, unit_price, cost_price"),
-      ]);
-      if (error) toast.error(error.message);
-      setStores(storesData ?? []);
-      setOrders((ordersData ?? []) as OrderRow[]);
-      setItems((itemsData ?? []) as ItemRow[]);
-      setLoading(false);
-    })();
-  }, []);
+  const [editing, setEditing] = useState<OrderRow | null>(null);
+  const [form, setForm] = useState({
+    status: "",
+    total_amount: 0,
+    amount_received: 0,
+    ml_fees: 0,
+    shipping_cost: 0,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const [{ data: storesData }, { data: ordersData, error }, { data: itemsData }] = await Promise.all([
+      supabase.from("stores").select("id, name"),
+      supabase.from("orders")
+        .select("id, store_id, ml_order_id, date_created, status, total_amount, amount_received, ml_fees, shipping_cost")
+        .order("date_created", { ascending: false })
+        .limit(1000),
+      supabase.from("order_items").select("order_id, title, quantity, unit_price, cost_price"),
+    ]);
+    if (error) toast.error(error.message);
+    setStores(storesData ?? []);
+    setOrders((ordersData ?? []) as OrderRow[]);
+    setItems((itemsData ?? []) as ItemRow[]);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const itemsByOrder = useMemo(() => {
     const map = new Map<string, ItemRow[]>();
@@ -91,9 +108,44 @@ const Pedidos = () => {
   const computeProfit = (o: OrderRow) => {
     const its = itemsByOrder.get(o.id) ?? [];
     const cost = its.reduce((acc, i) => acc + i.cost_price * i.quantity, 0);
-    // amount_received já é líquido de ml_fees (calculado no sync)
     const profit = (o.amount_received || 0) - cost - (o.shipping_cost || 0);
     return { cost, profit };
+  };
+
+  const openEdit = (o: OrderRow) => {
+    setEditing(o);
+    setForm({
+      status: o.status,
+      total_amount: Number(o.total_amount || 0),
+      amount_received: Number(o.amount_received || 0),
+      ml_fees: Number(o.ml_fees || 0),
+      shipping_cost: Number(o.shipping_cost || 0),
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        status: form.status,
+        total_amount: form.total_amount,
+        amount_received: form.amount_received,
+        ml_fees: form.ml_fees,
+        shipping_cost: form.shipping_cost,
+      })
+      .eq("id", editing.id);
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setOrders((prev) =>
+      prev.map((o) => (o.id === editing.id ? { ...o, ...form } : o))
+    );
+    toast.success("Pedido atualizado");
+    setEditing(null);
   };
 
   return (
@@ -127,9 +179,7 @@ const Pedidos = () => {
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos status</SelectItem>
-                <SelectItem value="paid">Pago</SelectItem>
-                <SelectItem value="cancelled">Cancelado</SelectItem>
-                <SelectItem value="confirmed">Confirmado</SelectItem>
+                {STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -156,6 +206,7 @@ const Pedidos = () => {
                     <TableHead className="text-right">Tarifa ML</TableHead>
                     <TableHead className="text-right">Custo</TableHead>
                     <TableHead className="text-right">Lucro</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -176,6 +227,11 @@ const Pedidos = () => {
                         <TableCell className={`text-right tabular-nums font-semibold ${profit >= 0 ? "text-success" : "text-destructive"}`}>
                           {fmtBRL(profit)}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <Button size="icon" variant="ghost" onClick={() => openEdit(o)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -185,6 +241,52 @@ const Pedidos = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar pedido</DialogTitle>
+            <DialogDescription>
+              {editing && <span className="font-mono text-xs">#{editing.ml_order_id}</span>}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <Label>Status</Label>
+              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Total (faturamento)</Label>
+              <Input type="number" step="0.01" value={form.total_amount}
+                onChange={(e) => setForm((f) => ({ ...f, total_amount: Number(e.target.value) }))} />
+            </div>
+            <div>
+              <Label>Recebido (líquido)</Label>
+              <Input type="number" step="0.01" value={form.amount_received}
+                onChange={(e) => setForm((f) => ({ ...f, amount_received: Number(e.target.value) }))} />
+            </div>
+            <div>
+              <Label>Tarifa ML</Label>
+              <Input type="number" step="0.01" value={form.ml_fees}
+                onChange={(e) => setForm((f) => ({ ...f, ml_fees: Number(e.target.value) }))} />
+            </div>
+            <div>
+              <Label>Frete</Label>
+              <Input type="number" step="0.01" value={form.shipping_cost}
+                onChange={(e) => setForm((f) => ({ ...f, shipping_cost: Number(e.target.value) }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
+            <Button onClick={saveEdit} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
