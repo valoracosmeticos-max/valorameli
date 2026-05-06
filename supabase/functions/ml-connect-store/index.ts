@@ -51,30 +51,51 @@ Deno.serve(async (req) => {
 
     const accessToken = body.access_token.trim();
 
-    // Validate token against ML API (server-side, no CORS)
+    // Try to validate token against ML API (server-side, no CORS)
     const meResp = await fetch("https://api.mercadolibre.com/users/me", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    if (!meResp.ok) {
+    let realSellerId: string | null = null;
+    let nickname: string | null = null;
+    let validated = false;
+    let validationWarning: string | null = null;
+
+    if (meResp.ok) {
+      const me = await meResp.json();
+      realSellerId = String(me.id);
+      nickname = me.nickname ?? null;
+      validated = true;
+    } else {
       const txt = await meResp.text();
       console.error("ML /users/me failed:", meResp.status, txt);
-      return new Response(
-        JSON.stringify({
-          error: meResp.status === 401
-            ? "Access Token inválido ou expirado. Gere um novo no Dev Center do Mercado Livre."
-            : `Falha ao validar token (HTTP ${meResp.status})`,
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+
+      if (meResp.status === 401) {
+        return new Response(
+          JSON.stringify({
+            error: "Access Token inválido ou expirado (401). Gere um novo no Dev Center do Mercado Livre.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // 403/PolicyAgent etc: token pode ser válido mas sem permissão para /users/me.
+      // Exigimos que o usuário tenha informado o Seller ID manualmente.
+      if (!body.seller_id?.trim()) {
+        return new Response(
+          JSON.stringify({
+            error: `O Mercado Livre rejeitou /users/me (HTTP ${meResp.status}). Informe o Seller ID manualmente para conectar mesmo assim.`,
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      realSellerId = body.seller_id.trim();
+      validationWarning = `Token salvo sem validação (ML retornou HTTP ${meResp.status} em /users/me). Verifique escopos read/offline_access do app.`;
     }
 
-    const me = await meResp.json();
-    const realSellerId = String(me.id);
-    const nickname: string | null = me.nickname ?? null;
-
     let mismatch = false;
-    if (body.seller_id?.trim() && body.seller_id.trim() !== realSellerId) {
+    if (validated && body.seller_id?.trim() && body.seller_id.trim() !== realSellerId) {
       mismatch = true;
     }
 
