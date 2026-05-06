@@ -125,19 +125,40 @@ Deno.serve(async (req) => {
             (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
             0,
           );
-          // Faturamento bruto = valor total pago pelo comprador (itens + frete pago por ele)
-          const grossPaid = Number(o.paid_amount ?? o.total_amount ?? 0);
-          // Recebido líquido = bruto - tarifa do ML
-          const netReceived = Math.max(0, grossPaid - mlFees);
+          // Faturamento (valor de venda) = soma dos itens (unit_price * quantity)
+          const grossSales = (o.order_items ?? []).reduce(
+            (acc: number, it: any) => acc + Number(it.unit_price ?? 0) * Number(it.quantity ?? 1),
+            0,
+          );
+
+          // Custo de frete pago pelo vendedor — buscar via /shipments/{id}/costs
+          let shippingCost = 0;
+          const shippingId = o.shipping?.id;
+          if (shippingId) {
+            try {
+              const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
+              // senders_cost pode ser número ou objeto { cost }
+              const sc = costs?.senders_cost;
+              if (typeof sc === "number") shippingCost = sc;
+              else if (sc && typeof sc === "object") shippingCost = Number(sc.cost ?? sc.amount ?? 0);
+              else if (typeof costs?.gross_amount === "number" && typeof costs?.receiver_cost === "number") {
+                shippingCost = Math.max(0, Number(costs.gross_amount) - Number(costs.receiver_cost));
+              }
+            } catch (_) {
+              // sem permissão ou sem dados — manter 0
+            }
+          }
+
+          const netReceived = Math.max(0, grossSales - mlFees - shippingCost);
           const orderRow = {
             user_id: userId,
             store_id: store.id,
             ml_order_id: String(o.id),
             date_created: o.date_created,
             status: o.status,
-            total_amount: grossPaid,
+            total_amount: grossSales,
             amount_received: netReceived,
-            shipping_cost: 0,
+            shipping_cost: shippingCost,
             ml_fees: mlFees,
           };
 
