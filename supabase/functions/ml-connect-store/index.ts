@@ -141,6 +141,8 @@ Deno.serve(async (req) => {
         nickname,
         updated: !!existing,
         mismatch,
+        validated,
+        warning: validationWarning,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
