@@ -1,51 +1,54 @@
-# Corrigir conexão de novas lojas (Failed to fetch)
+## Objetivo
 
-## Causa raiz
-O modal "Conectar nova loja" valida o Access Token chamando `https://api.mercadolibre.com/users/me` **diretamente do navegador**. A API do Mercado Livre não envia headers CORS, então o navegador bloqueia a chamada e retorna `Failed to fetch` — antes de qualquer validação acontecer. Isso impede salvar qualquer loja nova.
+Criar uma página dedicada de **Setup de Lojas** onde o usuário define quantas lojas tem e conecta cada uma via OAuth com logout forçado do Mercado Livre entre conexões. Isso evita o problema atual em que reconectar pelo OAuth pega a sessão já logada e acaba salvando a mesma conta com nome diferente — e elimina a necessidade do connect manual (que gerou o erro da Madama com seller_id e token inválidos).
 
-## Solução
+## Fluxo do usuário
 
-### 1. Nova edge function `ml-connect-store`
-Criar `supabase/functions/ml-connect-store/index.ts` que:
-- Recebe `{ store_name, seller_id, access_token, refresh_token }` do frontend (com Authorization do usuário logado).
-- Chama `https://api.mercadolibre.com/users/me` **do servidor** (sem CORS) para validar o token e obter `id` (seller real) + `nickname`.
-- Se o token for inválido → retorna 400 com mensagem clara.
-- Se o `seller_id` informado não bater com o do token → usa o do token e avisa.
-- Faz upsert na tabela `stores` por `(user_id, ml_seller_id)`:
-  - Se já existe loja com esse seller para o usuário → atualiza nome/tokens.
-  - Caso contrário → insere nova linha (permitindo **múltiplas lojas** por usuário).
-- Define `token_expires_at = now + 6h`.
-- Usa `SUPABASE_SERVICE_ROLE_KEY` para gravar (RLS já garante que o `user_id` vem do JWT validado).
+1. Usuário acessa **/setup-lojas** (link a partir de Configurações).
+2. Define quantas lojas vai conectar (input numérico) e dá nomes a elas (ex: "Madama", "Valora").
+3. Para cada loja aparece um card com botão **"Conectar Loja {nome}"**:
+   - Status inicial: "Não conectada"
+   - Ao clicar: redireciona para `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go={auth_url_encoded}` — isso desloga a sessão atual do ML e em seguida joga no fluxo OAuth
+   - `auth_url` é o endpoint padrão `https://auth.mercadolivre.com.br/authorization?...` com PKCE
+   - Volta ao callback existente (`/auth/ml-callback`), salva os tokens via `ml-oauth-callback`
+   - Card atualiza para **"Conectada ✓"** mostrando seller_id e nickname
+4. Quando todas estão conectadas, botão **"Concluir setup"** leva para Configurações.
 
-Configuração: deploy automático; manter `verify_jwt` padrão (true) para proteger.
+## Mudanças no código
 
-### 2. Atualizar `src/pages/Configuracoes.tsx`
-Substituir o bloco `saveManualToken` que usa `fetch(...mercadolibre...)` + `supabase.from("stores").insert/update` por uma única chamada:
+### Novo: `src/pages/SetupLojas.tsx`
+- Estado local: `stores: Array<{ name: string; status: 'idle'|'connecting'|'connected'; seller_id?; nickname? }>`
+- Carrega lojas existentes do banco no mount para já marcar conectadas
+- Botão por card aciona helper `startOAuth(storeName)`:
+  - Gera PKCE (`code_verifier`/`code_challenge`)
+  - Salva em `sessionStorage`: `ml_pkce_verifier`, `ml_store_name`, `ml_redirect_uri` (igual ao fluxo atual)
+  - Busca `client_id` via `ml-public-config`
+  - Constrói `authUrl = https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=...&redirect_uri=...&code_challenge=...&code_challenge_method=S256`
+  - Faz `window.location.href = https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(authUrl)}`
+- Após retorno (detecta via reload + checagem do banco), atualiza card para "Conectada ✓"
 
-```ts
-const { data, error } = await supabase.functions.invoke("ml-connect-store", {
-  body: { store_name, seller_id, access_token, refresh_token }
-});
-```
+### Editar: `src/App.tsx`
+Adicionar rota `<Route path="/setup-lojas" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>` com nested `<Route index element={<SetupLojas />} />`, ou simplesmente registrar `/setup-lojas` dentro do bloco do AppLayout.
 
-Tratar:
-- `error` → toast com mensagem do servidor (ex.: "Token inválido").
-- sucesso → toast com nickname retornado, fechar modal, recarregar lista.
+### Editar: `src/pages/Configuracoes.tsx`
+- **Remover** o diálogo de connect manual (Seller ID + Access Token + Refresh Token) — fonte do bug da Madama.
+- Substituir o botão "Conectar Loja" por um link **"Setup de Lojas"** que leva para `/setup-lojas`.
+- Manter listagem, sincronizar, refresh-token e remover loja.
 
-Manter o resto da página intacto (lista de lojas, sync, refresh, remover).
+### Editar: `supabase/functions/ml-oauth-callback/index.ts`
+Endurecer validação:
+- Após o token exchange, **exigir** que `meResp` (chamada `/users/me`) retorne 200. Se falhar, **não salvar** e retornar erro claro: "Não foi possível validar o token OAuth (HTTP X). Verifique se a aplicação no Dev Center tem escopos `read offline_access`."
+- Validar que `tokenJson.access_token` começa com `APP_USR-` e tem comprimento > 50.
+- Validar que `seller_id` é numérico e tem entre 6 e 12 dígitos.
 
-### 3. Garantir suporte a múltiplas lojas
-Já está suportado no modelo (`stores` é por `user_id`, sem unique global em `ml_seller_id`). A edge function faz upsert por `(user_id, ml_seller_id)`, então:
-- Tokens diferentes de **vendedores diferentes** → criam lojas separadas.
-- Mesmo vendedor → atualiza a loja existente (evita duplicata).
+### Deletar: `supabase/functions/ml-connect-store/index.ts`
+Não é mais usado — connect agora é exclusivamente OAuth.
 
-Cada loja segue isolada no Dashboard e Pedidos pelo `store_id` (já implementado).
+## Limpeza dos dados ruins
+A loja **Madama** atual (`ml_seller_id=471508824365378`, token de 32 chars) está corrompida. Na nova página de setup, instruir o usuário a remover essa loja (ou a próxima sync vai continuar dando 0). Posso também limpar via tool de update se você preferir — confirme.
 
-## Arquivos
-- **Criar**: `supabase/functions/ml-connect-store/index.ts`
-- **Editar**: `src/pages/Configuracoes.tsx` (apenas a função `saveManualToken`)
+## O que NÃO está no escopo
+- Não vamos mexer em `ml-sync-orders` (a lógica está correta; o bug atual é só dados ruins).
+- Não vamos mudar `MLCallback.tsx` — ele já cobre o caso de conta duplicada.
 
-## Resultado esperado
-- "Failed to fetch" desaparece.
-- Usuário cola Seller ID + Access Token + Refresh Token de qualquer loja e ela é validada e salva.
-- Várias lojas podem ser conectadas e aparecem separadas na listagem, cada uma com sync/refresh independentes.
+Confirma que posso implementar?

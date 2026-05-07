@@ -79,17 +79,43 @@ Deno.serve(async (req) => {
     const expiresIn: number = tokenJson.expires_in ?? 21600;
     const sellerId: string = String(tokenJson.user_id);
 
-    // Get nickname
+    // Hardened validation
+    if (!accessToken || !accessToken.startsWith("APP_USR-") || accessToken.length < 50) {
+      return new Response(
+        JSON.stringify({ error: "Token retornado pelo Mercado Livre tem formato inválido." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    if (!/^\d{6,12}$/.test(sellerId)) {
+      return new Response(
+        JSON.stringify({ error: `Seller ID retornado é inválido (${sellerId}).` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Require /users/me to validate the token has proper scopes
     let nickname: string | null = null;
-    try {
-      const meResp = await fetch("https://api.mercadolibre.com/users/me", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (meResp.ok) {
-        const me = await meResp.json();
-        nickname = me.nickname ?? null;
-      }
-    } catch (_) {}
+    const meResp = await fetch("https://api.mercadolibre.com/users/me", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!meResp.ok) {
+      const txt = await meResp.text();
+      console.error("ML /users/me failed:", meResp.status, txt);
+      return new Response(
+        JSON.stringify({
+          error: `Não foi possível validar o token OAuth (HTTP ${meResp.status}). Verifique se a aplicação no Dev Center possui os escopos 'read offline_access' e tente novamente.`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const me = await meResp.json();
+    nickname = me.nickname ?? null;
+    if (String(me.id) !== sellerId) {
+      return new Response(
+        JSON.stringify({ error: "Inconsistência: o seller_id do token não bate com /users/me." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
     const admin = createClient(supabaseUrl, serviceKey);
