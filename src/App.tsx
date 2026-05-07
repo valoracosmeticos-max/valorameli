@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Pedidos from "./pages/Pedidos";
 import Produtos from "./pages/Produtos";
 import Configuracoes from "./pages/Configuracoes";
+import SetupLojas from "./pages/SetupLojas";
 import CustosAdicionais from "./pages/CustosAdicionais";
 import Auth from "./pages/Auth";
 import MLCallback from "./pages/MLCallback";
