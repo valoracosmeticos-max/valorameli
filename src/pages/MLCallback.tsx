@@ -32,6 +32,7 @@ const MLCallback = () => {
     const verifier = sessionStorage.getItem("ml_pkce_verifier");
     const storeName = sessionStorage.getItem("ml_store_name");
     const redirectUri = sessionStorage.getItem("ml_redirect_uri");
+    const returnTo = sessionStorage.getItem("ml_return_to") || "/configuracoes";
 
     if (!verifier || !storeName || !redirectUri) {
       setStatus("error");
@@ -47,6 +48,7 @@ const MLCallback = () => {
         sessionStorage.removeItem("ml_pkce_verifier");
         sessionStorage.removeItem("ml_store_name");
         sessionStorage.removeItem("ml_redirect_uri");
+        sessionStorage.removeItem("ml_return_to");
         if (error || !data?.success) {
           setStatus("error");
           setMessage(data?.error ?? error?.message ?? "Falha ao trocar o código por um token.");
@@ -79,7 +81,7 @@ const MLCallback = () => {
 
         setStatus("success");
         setMessage(`Loja conectada com sucesso${data.nickname ? ` (${data.nickname})` : ""}!`);
-        setTimeout(() => nav("/configuracoes", { replace: true }), 1500);
+        setTimeout(() => nav(returnTo, { replace: true }), 1500);
       });
   }, [params, nav]);
 
@@ -99,8 +101,8 @@ const MLCallback = () => {
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{message}</p>
           {status === "error" && (
-            <Button onClick={() => nav("/configuracoes", { replace: true })} className="w-full">
-              Voltar para Configurações
+            <Button onClick={() => nav(returnTo, { replace: true })} className="w-full">
+              Voltar
             </Button>
           )}
         </CardContent>
