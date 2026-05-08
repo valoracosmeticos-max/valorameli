@@ -138,9 +138,14 @@ const SetupLojas = () => {
         `&code_challenge=${encodeURIComponent(challenge)}` +
         `&code_challenge_method=S256`;
 
-      // Force ML logout first so user can pick a different account for each store
-      const logoutUrl = `https://www.mercadolivre.com.br/jms/mlb/lgz/msl/logout?go=${encodeURIComponent(authUrl)}`;
-      window.location.href = logoutUrl;
+      // Open ML logout in a new tab so the user can sign out of their current ML account,
+      // then redirect this tab to the OAuth authorization URL.
+      try {
+        window.open("https://www.mercadolivre.com.br/jms/mlb/lgz/logout", "_blank", "noopener,noreferrer");
+      } catch {}
+
+      // Small delay so the logout tab has time to clear cookies before we redirect
+      setTimeout(() => { window.location.href = authUrl; }, 1500);
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao iniciar OAuth");
       setConnectingName(null);
@@ -163,8 +168,8 @@ const SetupLojas = () => {
           Adicione cada loja que você possui no Mercado Livre e clique em "Conectar" para autorizar.
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          A cada clique em "Conectar", o sistema desloga sua sessão atual do Mercado Livre automaticamente
-          para que você possa entrar com a conta da próxima loja.
+          Ao clicar em "Conectar", abriremos uma aba para deslogar sua sessão atual do Mercado Livre.
+          Confirme o logout nela e volte para esta aba — você será redirecionado para autorizar a próxima loja.
         </p>
       </div>
 
