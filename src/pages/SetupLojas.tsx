@@ -137,9 +137,7 @@ const SetupLojas = () => {
         `&code_challenge=${encodeURIComponent(challenge)}` +
         `&code_challenge_method=S256`;
 
-      // Force ML logout first so user can pick a different account, then go to OAuth
-      const logoutUrl = `https://www.mercadolivre.com.br/jms/mlb/lgz/msl/logout?go=${encodeURIComponent(authUrl)}`;
-      window.location.href = logoutUrl;
+      window.location.href = authUrl;
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao iniciar OAuth");
       setConnectingName(null);
