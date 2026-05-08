@@ -10,6 +10,7 @@ const MLCallback = () => {
   const nav = useNavigate();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [message, setMessage] = useState("Processando autorização...");
+  const [returnTo, setReturnTo] = useState("/configuracoes");
   const ran = useRef(false);
 
   useEffect(() => {
@@ -32,7 +33,8 @@ const MLCallback = () => {
     const verifier = sessionStorage.getItem("ml_pkce_verifier");
     const storeName = sessionStorage.getItem("ml_store_name");
     const redirectUri = sessionStorage.getItem("ml_redirect_uri");
-    const returnTo = sessionStorage.getItem("ml_return_to") || "/configuracoes";
+    const rt = sessionStorage.getItem("ml_return_to") || "/configuracoes";
+    setReturnTo(rt);
 
     if (!verifier || !storeName || !redirectUri) {
       setStatus("error");
@@ -81,7 +83,7 @@ const MLCallback = () => {
 
         setStatus("success");
         setMessage(`Loja conectada com sucesso${data.nickname ? ` (${data.nickname})` : ""}!`);
-        setTimeout(() => nav(returnTo, { replace: true }), 1500);
+        setTimeout(() => nav(rt, { replace: true }), 1500);
       });
   }, [params, nav]);
 
