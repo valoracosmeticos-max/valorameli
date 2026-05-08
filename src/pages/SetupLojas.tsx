@@ -137,9 +137,7 @@ const SetupLojas = () => {
         `&code_challenge=${encodeURIComponent(challenge)}` +
         `&code_challenge_method=S256`;
 
-      // Force ML logout first so user can pick a different account
-      const logoutUrl = `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(authUrl)}`;
-      window.location.href = logoutUrl;
+      window.location.href = authUrl;
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao iniciar OAuth");
       setConnectingName(null);
@@ -159,8 +157,12 @@ const SetupLojas = () => {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Setup de Lojas</h1>
         <p className="text-muted-foreground mt-1">
-          Adicione cada loja que você possui no Mercado Livre. Conecte uma de cada vez — entre cada conexão fazemos
-          logout do ML para que você possa escolher a conta correta.
+          Adicione cada loja que você possui no Mercado Livre e clique em "Conectar" para autorizar.
+        </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          Dica: para conectar uma conta diferente da atualmente logada, abra{" "}
+          <a href="https://www.mercadolivre.com.br" target="_blank" rel="noreferrer" className="underline">mercadolivre.com.br</a>{" "}
+          em outra aba e faça logout antes de clicar em Conectar.
         </p>
       </div>
 
