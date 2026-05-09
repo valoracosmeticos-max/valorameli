@@ -7,15 +7,19 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, Legend,
 } from "recharts";
 import {
   TrendingUp, TrendingDown, DollarSign, Wallet, Package,
-  AlertCircle, ArrowRight, Percent,
+  AlertCircle, ArrowRight, Percent, CalendarIcon,
 } from "lucide-react";
-import { format, startOfDay, subDays } from "date-fns";
+import { format, startOfDay, endOfDay, subDays, differenceInCalendarDays, eachDayOfInterval } from "date-fns";
+import type { DateRange } from "react-day-picker";
+import { cn } from "@/lib/utils";
 
 interface OrderRow {
   id: string; store_id: string; status: string;
