@@ -242,53 +242,119 @@ const SetupLojas = () => {
           {loading && <p className="text-sm text-muted-foreground">Carregando...</p>}
 
           {!loading && slots.map((slot, idx) => (
-            <div key={idx} className="flex items-center gap-3 p-4 rounded-lg border border-border bg-card">
-              <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center shrink-0">
-                <Store className="h-5 w-5 text-primary-foreground" />
-              </div>
+            <div key={idx} className="rounded-lg border border-border bg-card">
+              <div className="flex items-center gap-3 p-4">
+                <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center shrink-0">
+                  <Store className="h-5 w-5 text-primary-foreground" />
+                </div>
 
-              <div className="flex-1 min-w-0 space-y-1.5">
-                {slot.status === "connected" ? (
-                  <>
-                    <p className="font-medium truncate">{slot.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      Seller ID: {slot.seller_id ?? "—"} {slot.nickname && `· ${slot.nickname}`}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <Label htmlFor={`name-${idx}`} className="text-xs">Nome da loja</Label>
-                    <Input
-                      id={`name-${idx}`}
-                      placeholder="Ex: Loja Madama"
-                      value={slot.name}
-                      onChange={(e) => updateSlot(idx, { name: e.target.value })}
-                      maxLength={80}
-                      disabled={connectingName !== null}
-                    />
-                  </>
-                )}
-              </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  {slot.status === "connected" ? (
+                    <>
+                      <p className="font-medium truncate">{slot.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        Seller ID: {slot.seller_id ?? "—"} {slot.nickname && `· ${slot.nickname}`}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Label htmlFor={`name-${idx}`} className="text-xs">Nome da loja</Label>
+                      <Input
+                        id={`name-${idx}`}
+                        placeholder="Ex: Loja Madama"
+                        value={slot.name}
+                        onChange={(e) => updateSlot(idx, { name: e.target.value })}
+                        maxLength={80}
+                        disabled={connectingName !== null}
+                      />
+                    </>
+                  )}
+                </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {slot.status === "connected" ? (
-                  <Badge variant="default" className="gap-1">
-                    <CheckCircle2 className="h-3 w-3" />Conectada
-                  </Badge>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => startOAuth(idx)}
-                    disabled={!slot.name.trim() || connectingName !== null}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                    {connectingName === slot.name.trim() ? "Redirecionando..." : `Conectar Loja`}
+                <div className="flex items-center gap-2 shrink-0">
+                  {slot.status === "connected" ? (
+                    <Badge variant="default" className="gap-1">
+                      <CheckCircle2 className="h-3 w-3" />Conectada
+                    </Badge>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => startOAuth(idx)}
+                        disabled={!slot.name.trim() || connectingName !== null}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                        {connectingName === slot.name.trim() ? "Redirecionando..." : `Conectar Loja`}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => toggleManual(idx)}
+                        disabled={connectingName !== null}
+                      >
+                        <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+                        {slot.manual?.open ? "Fechar" : "Inserir tokens manualmente"}
+                      </Button>
+                    </>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => removeSlot(idx)} disabled={connectingName !== null}>
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </Button>
-                )}
-                <Button size="sm" variant="ghost" onClick={() => removeSlot(idx)} disabled={connectingName !== null}>
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
+                </div>
               </div>
+
+              {slot.status !== "connected" && slot.manual?.open && (
+                <div className="border-t border-border p-4 space-y-3 bg-muted/30">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Seller ID (User ID numérico)</Label>
+                      <Input
+                        placeholder="Ex: 123456789"
+                        value={slot.manual.seller_id}
+                        onChange={(e) => updateManual(idx, { seller_id: e.target.value })}
+                        disabled={slot.manual.saving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Id do aplicativo</Label>
+                      <Input
+                        placeholder="Ex: 1234567890123456"
+                        value={slot.manual.app_id}
+                        onChange={(e) => updateManual(idx, { app_id: e.target.value })}
+                        disabled={slot.manual.saving}
+                      />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="text-xs">Access Token</Label>
+                      <Input
+                        placeholder="APP_USR-..."
+                        value={slot.manual.access_token}
+                        onChange={(e) => updateManual(idx, { access_token: e.target.value })}
+                        disabled={slot.manual.saving}
+                      />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="text-xs">Refresh Token</Label>
+                      <Input
+                        placeholder="TG-..."
+                        value={slot.manual.refresh_token}
+                        onChange={(e) => updateManual(idx, { refresh_token: e.target.value })}
+                        disabled={slot.manual.saving}
+                      />
+                    </div>
+                  </div>
+
+                  {slot.manual.error && (
+                    <p className="text-sm text-destructive">{slot.manual.error}</p>
+                  )}
+
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={() => submitManual(idx)} disabled={slot.manual.saving}>
+                      {slot.manual.saving ? "Validando..." : "Salvar e validar"}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
 
