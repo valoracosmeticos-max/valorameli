@@ -166,6 +166,51 @@ const SetupLojas = () => {
     }
   };
 
+  const toggleManual = (idx: number) => {
+    setSlots((prev) => prev.map((s, i) => {
+      if (i !== idx) return s;
+      const cur = s.manual ?? emptyManual();
+      return { ...s, manual: { ...cur, open: !cur.open, error: null } };
+    }));
+  };
+
+  const updateManual = (idx: number, patch: Partial<ManualForm>) => {
+    setSlots((prev) => prev.map((s, i) => {
+      if (i !== idx) return s;
+      const cur = s.manual ?? emptyManual();
+      return { ...s, manual: { ...cur, ...patch } };
+    }));
+  };
+
+  const submitManual = async (idx: number) => {
+    const slot = slots[idx];
+    const name = slot.name.trim();
+    const m = slot.manual;
+    if (!name) return updateManual(idx, { error: "Informe o nome da loja acima." });
+    if (!m) return;
+    if (!m.seller_id.trim() || !m.access_token.trim() || !m.refresh_token.trim()) {
+      return updateManual(idx, { error: "Preencha Seller ID, Access Token e Refresh Token." });
+    }
+    updateManual(idx, { saving: true, error: null });
+    try {
+      const { data, error } = await supabase.functions.invoke("ml-manual-connect", {
+        body: {
+          store_name: name,
+          seller_id: m.seller_id.trim(),
+          app_id: m.app_id.trim() || undefined,
+          access_token: m.access_token.trim(),
+          refresh_token: m.refresh_token.trim(),
+        },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Falha ao validar tokens.");
+      toast.success("Loja conectada manualmente");
+      await loadFromDb();
+    } catch (e: any) {
+      updateManual(idx, { saving: false, error: e?.message ?? "Erro inesperado." });
+    }
+  };
+
   const allConnected = slots.length > 0 && slots.every((s) => s.status === "connected");
 
   return (
