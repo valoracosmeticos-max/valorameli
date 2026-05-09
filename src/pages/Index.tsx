@@ -41,6 +41,7 @@ const Index = () => {
   const [items, setItems] = useState<ItemRow[]>([]);
   const [addCosts, setAddCosts] = useState<AddCostRow[]>([]);
   const [period, setPeriod] = useState<string>("30");
+  const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
 
