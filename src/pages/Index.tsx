@@ -73,35 +73,44 @@ const Index = () => {
     return m;
   }, [items]);
 
-  const filtered = useMemo(() => {
+  const range = useMemo(() => {
+    if (period === "custom" && customRange?.from) {
+      const from = startOfDay(customRange.from);
+      const to = endOfDay(customRange.to ?? customRange.from);
+      const days = differenceInCalendarDays(to, from) + 1;
+      return { since: from.getTime(), until: to.getTime(), days, from, to };
+    }
     const days = Number(period);
-    const since = startOfDay(subDays(new Date(), days - 1)).getTime();
+    const to = endOfDay(new Date());
+    const from = startOfDay(subDays(new Date(), days - 1));
+    return { since: from.getTime(), until: to.getTime(), days, from, to };
+  }, [period, customRange]);
+
+  const filtered = useMemo(() => {
     return orders.filter((o) => {
       if (o.status === "cancelled") return false;
-      if (new Date(o.date_created).getTime() < since) return false;
+      const t = new Date(o.date_created).getTime();
+      if (t < range.since || t > range.until) return false;
       if (storeFilter !== "all" && o.store_id !== storeFilter) return false;
       return true;
     });
-  }, [orders, period, storeFilter]);
+  }, [orders, range, storeFilter]);
 
   // Custos adicionais alocados ao período selecionado
   const additionalForPeriod = useMemo(() => {
-    const days = Number(period);
-    const since = startOfDay(subDays(new Date(), days - 1)).getTime();
-    const now = Date.now();
     let total = 0;
     addCosts.forEach((c) => {
       const amt = Number(c.amount) || 0;
       if (c.cost_type === "fixed") {
         // proporcional: valor mensal × (dias do período / 30)
-        total += amt * (days / 30);
+        total += amt * (range.days / 30);
       } else {
         const d = new Date(c.cost_date + "T00:00").getTime();
-        if (d >= since && d <= now) total += amt;
+        if (d >= range.since && d <= range.until) total += amt;
       }
     });
     return total;
-  }, [addCosts, period]);
+  }, [addCosts, range]);
 
   const totals = useMemo(() => {
     let revenue = 0, received = 0, fees = 0, cost = 0, shipping = 0;
@@ -119,12 +128,11 @@ const Index = () => {
   }, [filtered, costByOrder, additionalForPeriod]);
 
   const dailyData = useMemo(() => {
-    const days = Number(period);
+    const days = eachDayOfInterval({ start: range.from, end: range.to });
     const buckets = new Map<string, { date: string; revenue: number; profit: number }>();
-    for (let i = days - 1; i >= 0; i--) {
-      const d = format(subDays(new Date(), i), "dd/MM");
-      buckets.set(d, { date: d, revenue: 0, profit: 0 });
-    }
+    days.forEach((d) => {
+      buckets.set(format(d, "dd/MM"), { date: format(d, "dd/MM"), revenue: 0, profit: 0 });
+    });
     filtered.forEach((o) => {
       const d = format(new Date(o.date_created), "dd/MM");
       const b = buckets.get(d);
@@ -134,7 +142,7 @@ const Index = () => {
       b.profit += o.amount_received - c - o.shipping_cost;
     });
     return Array.from(buckets.values());
-  }, [filtered, costByOrder, period]);
+  }, [filtered, costByOrder, range]);
 
   const byStore = useMemo(() => {
     const map = new Map<string, { name: string; revenue: number; profit: number }>();
