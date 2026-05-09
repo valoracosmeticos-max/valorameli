@@ -7,7 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CheckCircle2, Store, Plus, Trash2, ExternalLink, ArrowLeft } from "lucide-react";
+import { CheckCircle2, Store, Plus, Trash2, ExternalLink, ArrowLeft, KeyRound } from "lucide-react";
+
+interface ManualForm {
+  open: boolean;
+  seller_id: string;
+  app_id: string;
+  access_token: string;
+  refresh_token: string;
+  saving: boolean;
+  error: string | null;
+}
 
 interface StoreSlot {
   name: string;
@@ -15,7 +25,18 @@ interface StoreSlot {
   seller_id?: string;
   nickname?: string;
   store_id?: string;
+  manual?: ManualForm;
 }
+
+const emptyManual = (): ManualForm => ({
+  open: false,
+  seller_id: "",
+  app_id: "",
+  access_token: "",
+  refresh_token: "",
+  saving: false,
+  error: null,
+});
 
 // PKCE helpers
 function base64UrlEncode(buf: ArrayBuffer): string {
