@@ -123,7 +123,7 @@ const SetupLojas = () => {
       }
       const clientId = String(cfg.client_id);
       const { verifier, challenge } = await generatePkce();
-      const redirectUri = `${window.location.origin}/auth/ml-callback`;
+      const redirectUri = import.meta.env.VITE_ML_REDIRECT_URI ?? `${window.location.origin}/auth/ml-callback`;
 
       sessionStorage.setItem("ml_pkce_verifier", verifier);
       sessionStorage.setItem("ml_store_name", name);
