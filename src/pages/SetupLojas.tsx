@@ -138,8 +138,7 @@ const SetupLojas = () => {
         `&code_challenge=${encodeURIComponent(challenge)}` +
         `&code_challenge_method=S256`;
 
-      const logoutThenAuth = `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(authUrl)}`;
-      window.location.href = logoutThenAuth;
+      window.location.href = authUrl + `&prompt=login`;
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao iniciar OAuth");
       setConnectingName(null);
@@ -162,8 +161,7 @@ const SetupLojas = () => {
           Adicione cada loja que você possui no Mercado Livre e clique em "Conectar" para autorizar.
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          Ao clicar em "Conectar", abriremos uma aba para deslogar sua sessão atual do Mercado Livre.
-          Confirme o logout nela e volte para esta aba — você será redirecionado para autorizar a próxima loja.
+          Ao clicar em Conectar, você será redirecionado ao Mercado Livre. Faça login com a conta da loja que deseja adicionar — mesmo que já esteja logado, o ML pedirá as credenciais novamente.
         </p>
       </div>
 
