@@ -138,14 +138,8 @@ const SetupLojas = () => {
         `&code_challenge=${encodeURIComponent(challenge)}` +
         `&code_challenge_method=S256`;
 
-      // Open ML logout in a new tab so the user can sign out of their current ML account,
-      // then redirect this tab to the OAuth authorization URL.
-      try {
-        window.open("https://www.mercadolivre.com.br/jms/mlb/lgz/logout", "_blank", "noopener,noreferrer");
-      } catch {}
-
-      // Small delay so the logout tab has time to clear cookies before we redirect
-      setTimeout(() => { window.location.href = authUrl; }, 1500);
+      const logoutThenAuth = `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(authUrl)}`;
+      window.location.href = logoutThenAuth;
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao iniciar OAuth");
       setConnectingName(null);
