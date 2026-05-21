@@ -204,6 +204,7 @@ const Pedidos = () => {
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Recebido</TableHead>
                     <TableHead className="text-right">Tarifa ML</TableHead>
+                    <TableHead className="text-right">Custo Frete</TableHead>
                     <TableHead className="text-right">Custo</TableHead>
                     <TableHead className="text-right">Lucro</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -223,6 +224,9 @@ const Pedidos = () => {
                         <TableCell className="text-right tabular-nums">{fmtBRL(o.total_amount)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtBRL(o.amount_received)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">-{fmtBRL(o.ml_fees)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {o.shipping_cost > 0 ? `-${fmtBRL(o.shipping_cost)}` : "—"}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">-{fmtBRL(cost)}</TableCell>
                         <TableCell className={`text-right tabular-nums font-semibold ${profit >= 0 ? "text-success" : "text-destructive"}`}>
                           {fmtBRL(profit)}

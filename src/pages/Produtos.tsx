@@ -22,6 +22,9 @@ interface ProductRow {
 }
 interface StoreRow { id: string; name: string }
 
+const fmtBRL = (v: number) =>
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
 const Produtos = () => {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [stores, setStores] = useState<StoreRow[]>([]);
@@ -30,16 +33,41 @@ const Produtos = () => {
   const [search, setSearch] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [avgShipping, setAvgShipping] = useState<Record<string, number>>({});
 
   const load = async () => {
     setLoading(true);
-    const [{ data: storesData }, { data: prodData, error }] = await Promise.all([
+    const [{ data: storesData }, { data: prodData, error }, { data: itemsData }] = await Promise.all([
       supabase.from("stores").select("id, name").order("created_at"),
       supabase.from("products").select("id, store_id, ml_item_id, title, sku, thumbnail, cost_price").order("title"),
+      supabase.from("order_items").select("product_id, order_id").not("product_id", "is", null),
     ]);
     if (error) toast.error(error.message);
     setStores(storesData ?? []);
     setProducts((prodData ?? []) as ProductRow[]);
+
+    if (itemsData?.length) {
+      const orderIds = [...new Set(itemsData.map((i) => i.order_id))];
+      const { data: ordersData } = await supabase
+        .from("orders")
+        .select("id, shipping_cost")
+        .in("id", orderIds);
+
+      const acc: Record<string, { total: number; count: number }> = {};
+      itemsData.forEach((item) => {
+        if (!item.product_id) return;
+        const sc = Number(ordersData?.find((o) => o.id === item.order_id)?.shipping_cost ?? 0);
+        if (!acc[item.product_id]) acc[item.product_id] = { total: 0, count: 0 };
+        acc[item.product_id].total += sc;
+        acc[item.product_id].count += 1;
+      });
+      const avg: Record<string, number> = {};
+      for (const [pid, { total, count }] of Object.entries(acc)) {
+        avg[pid] = count > 0 ? total / count : 0;
+      }
+      setAvgShipping(avg);
+    }
+
     setLoading(false);
   };
 
@@ -142,6 +170,7 @@ const Produtos = () => {
                     <TableHead>Produto</TableHead>
                     <TableHead>Loja</TableHead>
                     <TableHead>SKU</TableHead>
+                    <TableHead className="text-right">Frete Médio</TableHead>
                     <TableHead className="text-right">Custo (R$)</TableHead>
                     <TableHead className="w-20"></TableHead>
                   </TableRow>
@@ -169,6 +198,9 @@ const Produtos = () => {
                         </TableCell>
                         <TableCell><Badge variant="secondary">{storeName(p.store_id)}</Badge></TableCell>
                         <TableCell className="text-sm text-muted-foreground">{p.sku ?? "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {avgShipping[p.id] > 0 ? `-${fmtBRL(avgShipping[p.id])}` : "—"}
+                        </TableCell>
                         <TableCell className="text-right">
                           <Input
                             type="text"
