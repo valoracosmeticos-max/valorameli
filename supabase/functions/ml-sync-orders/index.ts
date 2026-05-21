@@ -131,25 +131,12 @@ Deno.serve(async (req) => {
             0,
           );
 
-          // Custo de frete pago pelo vendedor — buscar via /shipments/{id}/costs
-          let shippingCost = 0;
-          const shippingId = o.shipping?.id;
-          if (shippingId) {
-            try {
-              const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
-              // senders_cost pode ser número ou objeto { cost }
-              const sc = costs?.senders_cost;
-              if (typeof sc === "number") shippingCost = sc;
-              else if (sc && typeof sc === "object") shippingCost = Number(sc.cost ?? sc.amount ?? 0);
-              else if (typeof costs?.gross_amount === "number" && typeof costs?.receiver_cost === "number") {
-                shippingCost = Math.max(0, Number(costs.gross_amount) - Number(costs.receiver_cost));
-              }
-            } catch (_) {
-              // sem permissão ou sem dados — manter 0
-            }
-          }
+          // Custo de frete: disponível diretamente no payments[0].shipping_cost
+          // (sem necessidade de chamar /shipments/{id}/costs que exige permissão extra)
+          const shippingCost = Number(o.payments?.[0]?.shipping_cost ?? 0);
 
-          const netReceived = Math.max(0, grossSales - mlFees - shippingCost);
+          // amount_received = líquido de tarifa ML (frete é custo separado, não deduzir aqui)
+          const netReceived = Math.max(0, grossSales - mlFees);
           const orderRow = {
             user_id: userId,
             store_id: store.id,
