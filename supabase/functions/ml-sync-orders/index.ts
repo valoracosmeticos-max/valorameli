@@ -131,12 +131,14 @@ Deno.serve(async (req) => {
             0,
           );
 
-          // Custo de frete: disponível diretamente no payments[0].shipping_cost
-          // (sem necessidade de chamar /shipments/{id}/costs que exige permissão extra)
-          const shippingCost = Number(o.payments?.[0]?.shipping_cost ?? 0);
+          // net_received_amount = valor líquido real que o vendedor recebe (após taxa ML + frete ML)
+          // shippingCost = (grossSales - mlFees) - net_received_amount → frete cobrado pelo ML
+          const sellerNet = Number(o.payments?.[0]?.net_received_amount ?? 0);
+          const grossMinusFees = Math.max(0, grossSales - mlFees);
+          const shippingCost = sellerNet > 0 ? Math.max(0, grossMinusFees - sellerNet) : 0;
 
-          // amount_received = líquido de tarifa ML (frete é custo separado, não deduzir aqui)
-          const netReceived = Math.max(0, grossSales - mlFees);
+          // amount_received = gross menos taxas ML (sem deduzir frete, frete é custo separado)
+          const netReceived = grossMinusFees;
           const orderRow = {
             user_id: userId,
             store_id: store.id,
