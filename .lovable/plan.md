@@ -1,33 +1,48 @@
-## Diagnóstico
+## Situação atual (confirmada)
 
-A segunda loja está difícil porque o botão atual não força uma nova sessão do Mercado Livre: ele abre direto `https://auth.mercadolivre.com.br/authorization`. Com isso, o Mercado Livre reaproveita a conta já logada da primeira loja ou cai numa página intermediária de autenticação (`auth.mercadolivre.com.br`) que pode ser recusada pelo navegador.
+- Este projeto Lovable está **vinculado ao Lovable Cloud** (`bulaobebfuruerltzbbe`). É o backend que minhas tools (`migration`, `deploy_edge_functions`, `secrets`, `read_query`) gerenciam hoje.
+- Você atualizou `.env` no GitHub para apontar para `bjljokggqflvzlenfbps`, mas o restante do projeto continua amarrado ao Cloud antigo (`config.toml`, `client.ts` gerado, secrets, edge functions deployadas).
 
-Também há um problema de UX: depois de conectar, o callback manda o usuário para `/configuracoes`, interrompendo o setup sequencial.
+## Limitação real do Lovable (precisa estar claro)
 
-## Plano de correção
+> **Uma vez que o Lovable Cloud é habilitado num projeto, ele NÃO pode ser desabilitado nele.** Restaurar uma versão anterior também não desfaz. Essa é uma regra da plataforma, não um bug que eu consiga contornar.
 
-1. **Restaurar o fluxo com logout forçado antes do OAuth**
-   - Em `src/pages/SetupLojas.tsx`, voltar a redirecionar para:
-     ```text
-     https://www.mercadolivre.com.br/jms/mlb/lgz/msl/logout?go={auth_url_encoded}
-     ```
-   - Isso força a troca de conta antes da autorização da segunda loja.
+Consequência: **não consigo "trocar" o Supabase deste projeto Lovable de `bulaobebfuruerltzbbe` para `bjljokggqflvzlenfbps`**. As tools de Supabase do Lovable continuarão escrevendo no Cloud antigo enquanto este projeto existir.
 
-2. **Usar o domínio correto do OAuth para o Brasil**
-   - Ajustar a URL de autorização para o endpoint brasileiro esperado pelo Mercado Livre, evitando a navegação direta problemática para `auth.mercadolivre.com.br` quando necessário.
-   - Manter os parâmetros atuais: `response_type=code`, `client_id`, `redirect_uri`, `code_challenge` e `code_challenge_method=S256`.
+O que dá pra fazer mesmo é **bypassar o Cloud** — usar o seu Supabase próprio diretamente via SDK no frontend, ignorando as tools nativas do Lovable. Mas isso tem trade-offs reais:
 
-3. **Adicionar um identificador de setup ao state/sessionStorage**
-   - Incluir no fluxo um marcador dizendo que o OAuth veio da página `/setup-lojas`.
-   - Isso permite retornar para a tela de setup após conectar uma loja, em vez de ir para `/configuracoes`.
+- `src/integrations/supabase/client.ts` e `src/integrations/supabase/types.ts` são **autogerados pelo Lovable** e apontam para `bulaobebfuruerltzbbe`. Eles vão ser sobrescritos sempre que o Lovable regenerar.
+- Minhas tools de migration/deploy de edge function continuarão indo pro Cloud antigo, inúteis pro seu projeto.
+- Edge functions teriam que ser deployadas por você via Supabase CLI (`supabase functions deploy`), porque `supabase--deploy_edge_functions` deploya no Cloud antigo.
+- Secrets das edge functions (ML_CLIENT_ID, ML_CLIENT_SECRET, etc.) precisam ser configurados no painel do **seu** Supabase, não via `add_secret`.
 
-4. **Corrigir o retorno pós-callback**
-   - Em `src/pages/MLCallback.tsx`, quando o fluxo vier do setup, redirecionar de volta para `/setup-lojas`.
-   - Manter `/configuracoes` para conexões iniciadas fora do setup.
+## Opções reais
 
-5. **Melhorar a mensagem da tela**
-   - Trocar a instrução manual de “abra outra aba e faça logout” por uma indicação clara de que o sistema vai desconectar a sessão atual do Mercado Livre automaticamente antes de conectar a próxima loja.
+### Opção A — Criar um projeto Lovable NOVO conectado ao seu Supabase (recomendado)
 
-## Resultado esperado
+1. No Lovable, criar um novo projeto **sem habilitar Cloud**.
+2. Conectar `bjljokggqflvzlenfbps` via integração Supabase (Connectors).
+3. Eu copio o código deste projeto pro novo (via tools cross_project) e rodo todas as migrations no seu Supabase.
+4. Edge functions deployam normalmente porque o Lovable está vinculado ao seu projeto.
 
-O usuário consegue conectar Loja 1, voltar para o setup, clicar em Loja 2, ser deslogado do Mercado Livre automaticamente, escolher a segunda conta, autorizar e ver o status `Conectada ✓` na sequência.
+→ Único caminho onde as tools Lovable funcionam corretamente com o seu Supabase.
+
+### Opção B — Manter este projeto e bypassar o Cloud (não recomendado)
+
+1. Substituir manualmente `src/integrations/supabase/client.ts` por um cliente custom que lê do `.env` (sabendo que o Lovable pode sobrescrever).
+2. Eu te entrego o SQL completo do schema (`stores`, `orders`, `order_items`, `products`, `additional_costs`, `profiles`, trigger `handle_new_user`, RLS, grants) para você colar no SQL Editor do seu Supabase.
+3. Você roda `supabase link --project-ref bjljokggqflvzlenfbps` + `supabase functions deploy ml-public-config ml-oauth-callback ml-manual-connect ml-refresh-token ml-sync-orders` localmente.
+4. Você seta os secrets `ML_CLIENT_ID` e `ML_CLIENT_SECRET` no painel do seu Supabase (Edge Functions → Secrets). `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` já existem automaticamente em qualquer edge function.
+5. Aceitar que minhas tools de Supabase deste projeto continuam apontando pro Cloud antigo (e portanto inúteis para o seu workflow daqui pra frente).
+
+### Opção C — Voltar a usar o Lovable Cloud
+
+Reverter `.env` para `bulaobebfuruerltzbbe`. Tudo volta a funcionar via tools Lovable. Você perde controle direto do banco mas tudo é gerenciado.
+
+## Diga qual opção e eu sigo
+
+Se A: me confirma, e eu te oriento exatamente como criar o projeto novo e me passar acesso.
+Se B: confirma e eu já gero (1) o SQL único do schema, (2) o novo `client.ts`, (3) o passo-a-passo de CLI/secrets.
+Se C: confirma e eu reverto `.env` no código + valido que tudo está funcional.
+
+Não vou mexer em nada até você escolher.
