@@ -19,7 +19,8 @@ import { ShoppingCart, Search, Pencil, Download, CalendarIcon } from "lucide-rea
 import { format, startOfDay, endOfDay } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
-import * as XLSX from "xlsx";
+// @ts-ignore
+import XLSX from "xlsx-js-style";
 
 interface OrderRow {
   id: string;
@@ -52,13 +53,65 @@ const statusVariant = (s: string): "default" | "secondary" | "destructive" | "ou
 
 const STATUS_OPTIONS = ["paid", "confirmed", "cancelled", "pending", "invalid"];
 
+// ── Estilos Excel ──────────────────────────────────────────────────
+const XL = {
+  title: {
+    fill: { patternType: "solid", fgColor: { rgb: "1B3A5C" } },
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14, name: "Arial" },
+    alignment: { horizontal: "center", vertical: "center" },
+  },
+  subtitle: {
+    fill: { patternType: "solid", fgColor: { rgb: "1B3A5C" } },
+    font: { color: { rgb: "AACCEE" }, sz: 9, name: "Arial" },
+    alignment: { horizontal: "center", vertical: "center" },
+  },
+  header: {
+    fill: { patternType: "solid", fgColor: { rgb: "2E5090" } },
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Arial" },
+    alignment: { horizontal: "center", vertical: "center" },
+    border: {
+      bottom: { style: "medium", color: { rgb: "FFFFFF" } },
+    },
+  },
+  total: {
+    fill: { patternType: "solid", fgColor: { rgb: "1B3A5C" } },
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Arial" },
+    alignment: { horizontal: "right", vertical: "center" },
+  },
+  totalLeft: {
+    fill: { patternType: "solid", fgColor: { rgb: "1B3A5C" } },
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Arial" },
+    alignment: { horizontal: "left", vertical: "center" },
+  },
+  rowEven: (left = false) => ({
+    fill: { patternType: "solid", fgColor: { rgb: "EEF2F8" } },
+    font: { sz: 10, name: "Arial" },
+    alignment: { horizontal: left ? "left" : "right", vertical: "center" },
+  }),
+  rowOdd: (left = false) => ({
+    fill: { patternType: "solid", fgColor: { rgb: "FFFFFF" } },
+    font: { sz: 10, name: "Arial" },
+    alignment: { horizontal: left ? "left" : "right", vertical: "center" },
+  }),
+};
+
+function applyStyle(ws: any, r: number, c: number, s: object) {
+  const ref = XLSX.utils.encode_cell({ r, c });
+  if (!ws[ref]) ws[ref] = { v: "", t: "s" };
+  ws[ref].s = s;
+}
+
+function styleRange(ws: any, row: number, fromCol: number, toCol: number, s: object) {
+  for (let c = fromCol; c <= toCol; c++) applyStyle(ws, row, c, s);
+}
+// ──────────────────────────────────────────────────────────────────
+
 const Pedidos = () => {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [storeFilter, setStoreFilter] = useState<string>("all");
-  // Default: "active" = exclui cancelados (mesma lógica do Dashboard)
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -103,12 +156,10 @@ const Pedidos = () => {
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
-      // Pedidos cancelados: exclui no modo "active"
       if (statusFilter === "active" && o.status === "cancelled") return false;
       if (statusFilter !== "all" && statusFilter !== "active" && o.status !== statusFilter) return false;
       if (storeFilter !== "all" && o.store_id !== storeFilter) return false;
       if (search && !o.ml_order_id.includes(search)) return false;
-      // Filtro de data
       if (dateRange?.from) {
         const t = new Date(o.date_created).getTime();
         const from = startOfDay(dateRange.from).getTime();
@@ -153,59 +204,171 @@ const Pedidos = () => {
       })
       .eq("id", editing.id);
     setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    setOrders((prev) =>
-      prev.map((o) => (o.id === editing.id ? { ...o, ...form } : o))
-    );
+    if (error) { toast.error(error.message); return; }
+    setOrders((prev) => prev.map((o) => (o.id === editing.id ? { ...o, ...form } : o)));
     toast.success("Pedido atualizado");
     setEditing(null);
   };
 
+  // ── Exportação XLSX estilizada ──────────────────────────────────
   const exportXLSX = () => {
-    if (filtered.length === 0) {
-      toast.error("Nenhum pedido para exportar.");
-      return;
+    if (filtered.length === 0) { toast.error("Nenhum pedido para exportar."); return; }
+
+    const periodLabel = dateRange?.from
+      ? `${format(dateRange.from, "dd/MM/yyyy")} a ${format(dateRange.to ?? dateRange.from, "dd/MM/yyyy")}`
+      : `Exportado em ${format(new Date(), "dd/MM/yyyy")}`;
+
+    // ── Aba 1: Pedidos ──
+    const NCOLS = 5;
+    const dataRows: any[][] = [];
+    let sumTotal = 0, sumCost = 0, sumProfit = 0;
+
+    filtered.forEach((o) => {
+      const { cost, profit } = computeProfit(o);
+      sumTotal += o.total_amount;
+      sumCost += cost;
+      sumProfit += profit;
+      dataRows.push([
+        format(new Date(o.date_created), "dd/MM/yyyy HH:mm"),
+        o.ml_order_id,
+        Number(o.total_amount.toFixed(2)),
+        Number(cost.toFixed(2)),
+        Number(profit.toFixed(2)),
+      ]);
+    });
+
+    const aoa1: any[][] = [
+      ["PEDIDOS — MERCADO LIVRE", "", "", "", ""],
+      [`Período: ${periodLabel}  |  Fonte: ERP Valora`, "", "", "", ""],
+      ["", "", "", "", ""],
+      ["Data", "Pedido", "Total (R$)", "Custo (R$)", "Lucro (R$)"],
+      ...dataRows,
+      [`TOTAL — ${filtered.length} pedido(s)`, "", Number(sumTotal.toFixed(2)), Number(sumCost.toFixed(2)), Number(sumProfit.toFixed(2))],
+    ];
+
+    const ws1 = XLSX.utils.aoa_to_sheet(aoa1);
+
+    // Estilos aba 1
+    styleRange(ws1, 0, 0, NCOLS - 1, XL.title);
+    styleRange(ws1, 1, 0, NCOLS - 1, XL.subtitle);
+    styleRange(ws1, 3, 0, NCOLS - 1, XL.header);
+
+    dataRows.forEach((_, i) => {
+      const r = 4 + i;
+      applyStyle(ws1, r, 0, (i % 2 === 0 ? XL.rowEven : XL.rowOdd)(true));
+      applyStyle(ws1, r, 1, (i % 2 === 0 ? XL.rowEven : XL.rowOdd)(true));
+      for (let c = 2; c < NCOLS; c++) {
+        applyStyle(ws1, r, c, (i % 2 === 0 ? XL.rowEven : XL.rowOdd)());
+        // Formato numérico BRL
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (ws1[ref]) ws1[ref].z = '#,##0.00';
+      }
+    });
+
+    const totalR = 4 + dataRows.length;
+    applyStyle(ws1, totalR, 0, XL.totalLeft);
+    applyStyle(ws1, totalR, 1, XL.total);
+    for (let c = 2; c < NCOLS; c++) {
+      applyStyle(ws1, totalR, c, XL.total);
+      const ref = XLSX.utils.encode_cell({ r: totalR, c });
+      if (ws1[ref]) ws1[ref].z = '#,##0.00';
     }
 
-    const rows = filtered.map((o) => {
-      const { cost, profit } = computeProfit(o);
-      return {
-        "Data": format(new Date(o.date_created), "dd/MM/yyyy HH:mm"),
-        "Pedido": o.ml_order_id,
-        "Total (R$)": Number(o.total_amount.toFixed(2)),
-        "Custo (R$)": Number(cost.toFixed(2)),
-        "Lucro (R$)": Number(profit.toFixed(2)),
-      };
-    });
-
-    // Linha de totais
-    const sumTotal = rows.reduce((s, r) => s + r["Total (R$)"], 0);
-    const sumCost  = rows.reduce((s, r) => s + r["Custo (R$)"],  0);
-    const sumLucro = rows.reduce((s, r) => s + r["Lucro (R$)"],  0);
-    rows.push({
-      "Data": "TOTAL",
-      "Pedido": `${filtered.length} pedido(s)`,
-      "Total (R$)": Number(sumTotal.toFixed(2)),
-      "Custo (R$)": Number(sumCost.toFixed(2)),
-      "Lucro (R$)": Number(sumLucro.toFixed(2)),
-    });
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [
-      { wch: 18 }, // Data
-      { wch: 22 }, // Pedido
-      { wch: 14 }, // Total
-      { wch: 14 }, // Custo
-      { wch: 14 }, // Lucro
+    ws1["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: NCOLS - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: NCOLS - 1 } },
+      { s: { r: totalR, c: 0 }, e: { r: totalR, c: 1 } },
     ];
+    ws1["!cols"] = [{ wch: 18 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+    ws1["!rows"] = [{ hpt: 32 }, { hpt: 18 }, { hpt: 8 }, { hpt: 22 }];
+
+    // ── Aba 2: Resumo por Produto ──
+    const prodMap = new Map<string, { title: string; costUnit: number; qtySold: number; totalCost: number }>();
+    filtered.forEach((o) => {
+      (itemsByOrder.get(o.id) ?? []).forEach((it) => {
+        const key = it.title;
+        const cur = prodMap.get(key) ?? { title: it.title, costUnit: it.cost_price, qtySold: 0, totalCost: 0 };
+        cur.qtySold += it.quantity;
+        cur.totalCost += it.cost_price * it.quantity;
+        prodMap.set(key, cur);
+      });
+    });
+
+    const products = Array.from(prodMap.values()).sort((a, b) => b.totalCost - a.totalCost);
+    const totalCostAll = products.reduce((s, p) => s + p.totalCost, 0);
+    const totalQtyAll  = products.reduce((s, p) => s + p.qtySold,  0);
+
+    const NCOLS2 = 5;
+    const prodDataRows: any[][] = products.map((p) => [
+      p.title,
+      Number(p.costUnit.toFixed(2)),
+      p.qtySold,
+      Number(p.totalCost.toFixed(2)),
+      totalCostAll > 0 ? Number((p.totalCost / totalCostAll).toFixed(4)) : 0,
+    ]);
+
+    const aoa2: any[][] = [
+      ["CUSTO DE VENDAS — MERCADO LIVRE", "", "", "", ""],
+      [`Período: ${periodLabel}  |  Fonte: ERP Valora`, "", "", "", ""],
+      ["", "", "", "", ""],
+      ["Produto", "Custo Unit. (R$)", "Qtd Vendida", "Custo Total (R$)", "% do Custo"],
+      ...prodDataRows,
+      [
+        `TOTAL — ${products.length} produto(s) · ${totalQtyAll} itens vendidos`,
+        "",
+        totalQtyAll,
+        Number(totalCostAll.toFixed(2)),
+        1,
+      ],
+    ];
+
+    const ws2 = XLSX.utils.aoa_to_sheet(aoa2);
+
+    styleRange(ws2, 0, 0, NCOLS2 - 1, XL.title);
+    styleRange(ws2, 1, 0, NCOLS2 - 1, XL.subtitle);
+    styleRange(ws2, 3, 0, NCOLS2 - 1, XL.header);
+
+    prodDataRows.forEach((_, i) => {
+      const r = 4 + i;
+      applyStyle(ws2, r, 0, (i % 2 === 0 ? XL.rowEven : XL.rowOdd)(true));
+      for (let c = 1; c < NCOLS2; c++) {
+        applyStyle(ws2, r, c, (i % 2 === 0 ? XL.rowEven : XL.rowOdd)());
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (ws2[ref]) {
+          if (c === 4) ws2[ref].z = '0.0%';
+          else if (c !== 2) ws2[ref].z = '#,##0.00';
+        }
+      }
+    });
+
+    const totalR2 = 4 + prodDataRows.length;
+    applyStyle(ws2, totalR2, 0, XL.totalLeft);
+    applyStyle(ws2, totalR2, 1, XL.total);
+    for (let c = 2; c < NCOLS2; c++) {
+      applyStyle(ws2, totalR2, c, XL.total);
+      const ref = XLSX.utils.encode_cell({ r: totalR2, c });
+      if (ws2[ref]) {
+        if (c === 4) ws2[ref].z = '0.0%';
+        else if (c !== 2) ws2[ref].z = '#,##0.00';
+      }
+    }
+
+    ws2["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: NCOLS2 - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: NCOLS2 - 1 } },
+      { s: { r: totalR2, c: 0 }, e: { r: totalR2, c: 1 } },
+    ];
+    ws2["!cols"] = [{ wch: 42 }, { wch: 16 }, { wch: 13 }, { wch: 17 }, { wch: 13 }];
+    ws2["!rows"] = [{ hpt: 32 }, { hpt: 18 }, { hpt: 8 }, { hpt: 22 }];
+
+    // Gerar arquivo
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Pedidos");
+    XLSX.utils.book_append_sheet(wb, ws1, "Pedidos");
+    XLSX.utils.book_append_sheet(wb, ws2, "Resumo por Produto");
     XLSX.writeFile(wb, `pedidos-${format(new Date(), "yyyy-MM-dd")}.xlsx`);
-    toast.success(`${filtered.length} pedido(s) exportado(s)`);
+    toast.success(`${filtered.length} pedido(s) e ${products.length} produto(s) exportados`);
   };
+  // ───────────────────────────────────────────────────────────────
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -224,9 +387,7 @@ const Pedidos = () => {
             </Button>
           </div>
 
-          {/* Filtros */}
           <div className="flex flex-wrap gap-2">
-            {/* Busca */}
             <div className="relative">
               <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -237,26 +398,18 @@ const Pedidos = () => {
               />
             </div>
 
-            {/* Filtro de período */}
             <Popover>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  className={cn(
-                    "w-auto justify-start text-left font-normal",
-                    !dateRange?.from && "text-muted-foreground"
-                  )}
+                  className={cn("w-auto justify-start text-left font-normal", !dateRange?.from && "text-muted-foreground")}
                 >
                   <CalendarIcon className="h-4 w-4 mr-2" />
                   {dateRange?.from ? (
-                    dateRange.to ? (
-                      <>{format(dateRange.from, "dd/MM/yy")} – {format(dateRange.to, "dd/MM/yy")}</>
-                    ) : (
-                      format(dateRange.from, "dd/MM/yy")
-                    )
-                  ) : (
-                    <span>Filtrar por período</span>
-                  )}
+                    dateRange.to
+                      ? <>{format(dateRange.from, "dd/MM/yy")} – {format(dateRange.to, "dd/MM/yy")}</>
+                      : format(dateRange.from, "dd/MM/yy")
+                  ) : <span>Filtrar por período</span>}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
@@ -270,15 +423,12 @@ const Pedidos = () => {
                 />
                 {dateRange?.from && (
                   <div className="p-2 border-t flex justify-end">
-                    <Button size="sm" variant="ghost" onClick={() => setDateRange(undefined)}>
-                      Limpar
-                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setDateRange(undefined)}>Limpar</Button>
                   </div>
                 )}
               </PopoverContent>
             </Popover>
 
-            {/* Loja */}
             <Select value={storeFilter} onValueChange={setStoreFilter}>
               <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -287,7 +437,6 @@ const Pedidos = () => {
               </SelectContent>
             </Select>
 
-            {/* Status */}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
               <SelectContent>
