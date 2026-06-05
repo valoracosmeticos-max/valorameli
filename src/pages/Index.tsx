@@ -88,7 +88,8 @@ const Index = () => {
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
-      if (o.status === "cancelled") return false;
+      // Excluir cancelados e parcialmente reembolsados
+      if (o.status === "cancelled" || o.status === "partially_refunded") return false;
       const t = new Date(o.date_created).getTime();
       if (t < range.since || t > range.until) return false;
       if (storeFilter !== "all" && o.store_id !== storeFilter) return false;
@@ -116,15 +117,18 @@ const Index = () => {
     let revenue = 0, received = 0, fees = 0, cost = 0, shipping = 0;
     filtered.forEach((o) => {
       revenue += o.total_amount;
-      received += o.amount_received;
+      received += o.amount_received; // = total_amount - ml_fees (calculado no sync)
       fees += o.ml_fees;
       shipping += o.shipping_cost;
       cost += costByOrder.get(o.id) ?? 0;
     });
-    // amount_received já vem líquido de ml_fees (calculado no sync)
-    const profit = received - cost - shipping - additionalForPeriod;
-    const margin = received > 0 ? (profit / received) * 100 : 0;
-    return { revenue, received, fees, cost, profit, margin, additional: additionalForPeriod, count: filtered.length };
+    // Recebido líquido = após tarifa de venda E tarifa de envio
+    const receivedNet = received - shipping;
+    // Lucro = Faturamento − Tarifa ML − Frete − Custo Produtos − Custos Adicionais
+    const profit = revenue - fees - shipping - cost - additionalForPeriod;
+    // Margem sobre o faturamento
+    const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+    return { revenue, receivedNet, fees, cost, shipping, profit, margin, additional: additionalForPeriod, count: filtered.length };
   }, [filtered, costByOrder, additionalForPeriod]);
 
   const dailyData = useMemo(() => {
@@ -138,8 +142,9 @@ const Index = () => {
       const b = buckets.get(d);
       if (!b) return;
       const c = costByOrder.get(o.id) ?? 0;
-      b.revenue += o.amount_received;
-      b.profit += o.amount_received - c - o.shipping_cost;
+      // Faturamento (total_amount) e Lucro = Faturamento − todas tarifas − custo
+      b.revenue += o.total_amount;
+      b.profit += o.total_amount - o.ml_fees - o.shipping_cost - c;
     });
     return Array.from(buckets.values());
   }, [filtered, costByOrder, range]);
@@ -149,8 +154,8 @@ const Index = () => {
     filtered.forEach((o) => {
       const name = stores.find((s) => s.id === o.store_id)?.name ?? "—";
       const cur = map.get(o.store_id) ?? { name, revenue: 0, profit: 0 };
-      cur.revenue += o.amount_received;
-      cur.profit += o.amount_received - (costByOrder.get(o.id) ?? 0) - o.shipping_cost;
+      cur.revenue += o.total_amount;
+      cur.profit += o.total_amount - o.ml_fees - o.shipping_cost - (costByOrder.get(o.id) ?? 0);
       map.set(o.store_id, cur);
     });
     return Array.from(map.values());
@@ -158,7 +163,7 @@ const Index = () => {
 
   const cards = [
     { label: "Faturamento", value: fmtBRL(totals.revenue), icon: DollarSign, color: "text-primary" },
-    { label: "Recebido", value: fmtBRL(totals.received), icon: Wallet, color: "text-success" },
+    { label: "Recebido", value: fmtBRL(totals.receivedNet), icon: Wallet, color: "text-success" },
     { label: "Custo produtos", value: fmtBRL(totals.cost), icon: Package, color: "text-warning" },
     { label: "Custos adicionais", value: fmtBRL(totals.additional), icon: Wallet, color: "text-warning" },
     { label: "Lucro", value: fmtBRL(totals.profit), icon: totals.profit >= 0 ? TrendingUp : TrendingDown,
@@ -172,7 +177,7 @@ const Index = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            {totals.count} pedido(s) · cancelados excluídos · Lucro = Recebido (líquido de tarifa ML) − Custo Produto − Frete − Custos Adicionais
+            {totals.count} pedido(s) · cancelados/reembolsados excluídos · Lucro = Faturamento − Tarifa ML − Frete − Custo Produtos − Custos Adicionais
           </p>
         </div>
         <div className="flex gap-2">
@@ -276,7 +281,7 @@ const Index = () => {
                     formatter={(v: number) => fmtBRL(v)}
                   />
                   <Legend />
-                  <Line type="monotone" dataKey="revenue" name="Recebido"
+                  <Line type="monotone" dataKey="revenue" name="Faturamento"
                     stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="profit" name="Lucro"
                     stroke="hsl(var(--success))" strokeWidth={2} dot={false} />
@@ -305,7 +310,7 @@ const Index = () => {
                     formatter={(v: number) => fmtBRL(v)}
                   />
                   <Legend />
-                  <Bar dataKey="revenue" name="Recebido" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="revenue" name="Faturamento" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="profit" name="Lucro" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
