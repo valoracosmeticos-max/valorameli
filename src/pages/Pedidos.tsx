@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -13,8 +15,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ShoppingCart, Search, Pencil } from "lucide-react";
-import { format } from "date-fns";
+import { ShoppingCart, Search, Pencil, Download, CalendarIcon } from "lucide-react";
+import { format, startOfDay, endOfDay } from "date-fns";
+import type { DateRange } from "react-day-picker";
+import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
 
 interface OrderRow {
   id: string;
@@ -53,8 +58,10 @@ const Pedidos = () => {
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [storeFilter, setStoreFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  // Default: "active" = exclui cancelados (mesma lógica do Dashboard)
+  const [statusFilter, setStatusFilter] = useState<string>("active");
   const [search, setSearch] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
 
   const [editing, setEditing] = useState<OrderRow | null>(null);
   const [form, setForm] = useState({
@@ -96,12 +103,21 @@ const Pedidos = () => {
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
+      // Pedidos cancelados: exclui no modo "active"
+      if (statusFilter === "active" && o.status === "cancelled") return false;
+      if (statusFilter !== "all" && statusFilter !== "active" && o.status !== statusFilter) return false;
       if (storeFilter !== "all" && o.store_id !== storeFilter) return false;
-      if (statusFilter !== "all" && o.status !== statusFilter) return false;
       if (search && !o.ml_order_id.includes(search)) return false;
+      // Filtro de data
+      if (dateRange?.from) {
+        const t = new Date(o.date_created).getTime();
+        const from = startOfDay(dateRange.from).getTime();
+        const to = endOfDay(dateRange.to ?? dateRange.from).getTime();
+        if (t < from || t > to) return false;
+      }
       return true;
     });
-  }, [orders, storeFilter, statusFilter, search]);
+  }, [orders, storeFilter, statusFilter, search, dateRange]);
 
   const storeName = (id: string) => stores.find((s) => s.id === id)?.name ?? "—";
 
@@ -148,42 +164,141 @@ const Pedidos = () => {
     setEditing(null);
   };
 
+  const exportXLSX = () => {
+    if (filtered.length === 0) {
+      toast.error("Nenhum pedido para exportar.");
+      return;
+    }
+
+    const rows = filtered.map((o) => {
+      const { cost, profit } = computeProfit(o);
+      return {
+        "Data": format(new Date(o.date_created), "dd/MM/yyyy HH:mm"),
+        "Pedido": o.ml_order_id,
+        "Total (R$)": Number(o.total_amount.toFixed(2)),
+        "Custo (R$)": Number(cost.toFixed(2)),
+        "Lucro (R$)": Number(profit.toFixed(2)),
+      };
+    });
+
+    // Linha de totais
+    const sumTotal = rows.reduce((s, r) => s + r["Total (R$)"], 0);
+    const sumCost  = rows.reduce((s, r) => s + r["Custo (R$)"],  0);
+    const sumLucro = rows.reduce((s, r) => s + r["Lucro (R$)"],  0);
+    rows.push({
+      "Data": "TOTAL",
+      "Pedido": `${filtered.length} pedido(s)`,
+      "Total (R$)": Number(sumTotal.toFixed(2)),
+      "Custo (R$)": Number(sumCost.toFixed(2)),
+      "Lucro (R$)": Number(sumLucro.toFixed(2)),
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 18 }, // Data
+      { wch: 22 }, // Pedido
+      { wch: 14 }, // Total
+      { wch: 14 }, // Custo
+      { wch: 14 }, // Lucro
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Pedidos");
+    XLSX.writeFile(wb, `pedidos-${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+    toast.success(`${filtered.length} pedido(s) exportado(s)`);
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Pedidos</h1>
-        <p className="text-muted-foreground mt-1">Histórico de vendas com cálculo de lucro</p>
+        <p className="text-muted-foreground mt-1">Histórico de vendas com cálculo de lucro · cancelados excluídos por padrão</p>
       </div>
 
       <Card className="shadow-soft border-border/60">
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <CardTitle>Lista ({filtered.length})</CardTitle>
-          <div className="flex flex-col sm:flex-row gap-2">
+        <CardHeader className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <CardTitle>Lista ({filtered.length})</CardTitle>
+            <Button size="sm" variant="outline" onClick={exportXLSX}>
+              <Download className="h-4 w-4 mr-2" />
+              Exportar XLSX
+            </Button>
+          </div>
+
+          {/* Filtros */}
+          <div className="flex flex-wrap gap-2">
+            {/* Busca */}
             <div className="relative">
               <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nº do pedido"
+                placeholder="Nº do pedido"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 w-56"
+                className="pl-9 w-48"
               />
             </div>
+
+            {/* Filtro de período */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-auto justify-start text-left font-normal",
+                    !dateRange?.from && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="h-4 w-4 mr-2" />
+                  {dateRange?.from ? (
+                    dateRange.to ? (
+                      <>{format(dateRange.from, "dd/MM/yy")} – {format(dateRange.to, "dd/MM/yy")}</>
+                    ) : (
+                      format(dateRange.from, "dd/MM/yy")
+                    )
+                  ) : (
+                    <span>Filtrar por período</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  selected={dateRange}
+                  onSelect={setDateRange}
+                  numberOfMonths={2}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+                {dateRange?.from && (
+                  <div className="p-2 border-t flex justify-end">
+                    <Button size="sm" variant="ghost" onClick={() => setDateRange(undefined)}>
+                      Limpar
+                    </Button>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            {/* Loja */}
             <Select value={storeFilter} onValueChange={setStoreFilter}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas as lojas</SelectItem>
                 {stores.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
               </SelectContent>
             </Select>
+
+            {/* Status */}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos status</SelectItem>
+                <SelectItem value="active">Ativos (exceto cancelados)</SelectItem>
+                <SelectItem value="all">Todos os status</SelectItem>
                 {STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
         </CardHeader>
+
         <CardContent>
           {loading ? (
             <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>
