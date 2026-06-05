@@ -131,21 +131,25 @@ Deno.serve(async (req) => {
             0,
           );
 
-          // Custo de frete: net_received_amount via /payments/{id}
-          // payments[0].shipping_cost = o que o comprador pagou (0 no frete grátis)
-          // O custo real ao vendedor = (bruto - tarifa ML) - net_received_amount
-          let sellerNet = Number(o.payments?.[0]?.net_received_amount ?? 0);
-          if (sellerNet === 0 && o.payments?.[0]?.id) {
+          // Custo de frete via /shipments/{id}/costs (requer escopo read_shipments)
+          let shippingCost = 0;
+          const shippingId = o.shipping?.id;
+          if (shippingId) {
             try {
-              const pmtData = await mlGet(`${ML_API}/payments/${o.payments[0].id}`, token);
-              sellerNet = Number(pmtData.net_received_amount ?? 0);
-            } catch (_) {}
+              const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
+              const sc = costs?.senders_cost;
+              if (typeof sc === "number") shippingCost = sc;
+              else if (sc && typeof sc === "object") shippingCost = Number(sc.cost ?? sc.amount ?? 0);
+              else if (typeof costs?.gross_amount === "number" && typeof costs?.receiver_cost === "number") {
+                shippingCost = Math.max(0, Number(costs.gross_amount) - Number(costs.receiver_cost));
+              }
+            } catch (_) {
+              // sem permissão — manter 0
+            }
           }
-          const grossMinusFees = Math.max(0, grossSales - mlFees);
-          const shippingCost = sellerNet > 0 ? Math.max(0, grossMinusFees - sellerNet) : 0;
 
-          // amount_received = bruto menos tarifas ML (frete é custo separado)
-          const netReceived = grossMinusFees;
+          // amount_received = bruto menos tarifas ML (frete é custo separado, não deduzir aqui)
+          const netReceived = Math.max(0, grossSales - mlFees);
           const orderRow = {
             user_id: userId,
             store_id: store.id,

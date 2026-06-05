@@ -157,7 +157,8 @@ const SetupLojas = () => {
         `&client_id=${encodeURIComponent(clientId)}` +
         `&redirect_uri=${encodeURIComponent(redirectUri)}` +
         `&code_challenge=${encodeURIComponent(challenge)}` +
-        `&code_challenge_method=S256`;
+        `&code_challenge_method=S256` +
+        `&scope=${encodeURIComponent("offline_access read_orders read_shipments")}`;
 
       window.location.href = authUrl + `&prompt=login`;
     } catch (e: any) {
