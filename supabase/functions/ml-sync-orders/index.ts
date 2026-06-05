@@ -131,13 +131,20 @@ Deno.serve(async (req) => {
             0,
           );
 
-          // net_received_amount = valor líquido real que o vendedor recebe (após taxa ML + frete ML)
-          // shippingCost = (grossSales - mlFees) - net_received_amount → frete cobrado pelo ML
-          const sellerNet = Number(o.payments?.[0]?.net_received_amount ?? 0);
+          // net_received_amount: tenta do objeto inline; se 0, busca endpoint /payments/{id}
+          let sellerNet = Number(o.payments?.[0]?.net_received_amount ?? 0);
+          if (sellerNet === 0 && o.payments?.[0]?.id) {
+            try {
+              const pmtData = await mlGet(`${ML_API}/payments/${o.payments[0].id}`, token);
+              sellerNet = Number(pmtData.net_received_amount ?? 0);
+            } catch (_) {}
+          }
+
           const grossMinusFees = Math.max(0, grossSales - mlFees);
+          // shippingCost = (bruto - taxa ML) - líquido real = "Tarifa Mercado Envios por sua conta"
           const shippingCost = sellerNet > 0 ? Math.max(0, grossMinusFees - sellerNet) : 0;
 
-          // amount_received = gross menos taxas ML (sem deduzir frete, frete é custo separado)
+          // amount_received = gross menos taxas ML (frete é custo separado)
           const netReceived = grossMinusFees;
           const orderRow = {
             user_id: userId,
