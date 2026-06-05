@@ -105,6 +105,8 @@ Deno.serve(async (req) => {
       const limit = 50;
       let total = 0;
       let fetched = 0;
+      let shippingWithCost = 0;
+      let lastShipErr = "";
       const productCache = new Map<string, { title: string; thumbnail: string | null }>();
 
       while (true) {
@@ -131,21 +133,39 @@ Deno.serve(async (req) => {
             0,
           );
 
-          // Custo de frete via /shipments/{id}/costs (requer escopo read_shipments)
+          // Custo de frete do vendedor (o que o seller paga ao ML)
           let shippingCost = 0;
           const shippingId = o.shipping?.id;
           if (shippingId) {
+            let _shipErr = "";
             try {
+              // Tentativa 1: endpoint detalhado — requer escopo read_shipments
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
               const sc = costs?.senders_cost;
-              if (typeof sc === "number") shippingCost = sc;
-              else if (sc && typeof sc === "object") shippingCost = Number(sc.cost ?? sc.amount ?? 0);
-              else if (typeof costs?.gross_amount === "number" && typeof costs?.receiver_cost === "number") {
-                shippingCost = Math.max(0, Number(costs.gross_amount) - Number(costs.receiver_cost));
+              if (typeof sc === "number") {
+                shippingCost = sc;
+              } else if (sc && typeof sc === "object") {
+                shippingCost = Number(sc.cost ?? sc.amount ?? 0);
+              } else if (typeof costs?.gross_amount === "number") {
+                shippingCost = Math.max(0, Number(costs.gross_amount) - Number(costs.receiver_cost ?? 0));
               }
-            } catch (_) {
-              // sem permissão — manter 0
+            } catch (e1) {
+              _shipErr = String(e1).slice(0, 200);
+              // Tentativa 2: /shipments/{id} — funciona sem escopo especial
+              try {
+                const shipment = await mlGet(`${ML_API}/shipments/${shippingId}`, token);
+                const grossAmt = Number(shipment?.cost?.gross_amount ?? shipment?.cost?.amount ?? 0);
+                // Subtrair o que o comprador pagou de frete
+                const buyerShipping = (o.payments ?? []).reduce(
+                  (sum: number, p: any) => sum + Number(p.shipping_cost ?? 0), 0
+                );
+                shippingCost = Math.max(0, grossAmt - buyerShipping);
+              } catch (e2) {
+                _shipErr += ` | /shipments: ${String(e2).slice(0, 100)}`;
+              }
             }
+            if (_shipErr) lastShipErr = _shipErr;
+            if (shippingCost > 0) shippingWithCost++;
           }
 
           // amount_received = bruto menos tarifas ML (frete é custo separado, não deduzir aqui)
@@ -259,7 +279,7 @@ Deno.serve(async (req) => {
       }
 
       await admin.from("stores").update({ last_sync_at: new Date().toISOString() }).eq("id", store.id);
-      summary.push({ store: store.name, fetched, total });
+      summary.push({ store: store.name, fetched, total, shippingWithCost, ...(lastShipErr ? { lastShipErr } : {}) });
     }
 
     return new Response(JSON.stringify({ success: true, summary }), {
