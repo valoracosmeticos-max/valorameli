@@ -9,9 +9,7 @@ const ML_API = "https://api.mercadolibre.com";
 
 async function refreshIfNeeded(admin: any, store: any) {
   const expiresAt = store.token_expires_at ? new Date(store.token_expires_at).getTime() : 0;
-  // Refresh if expires in <5 min
   if (expiresAt > Date.now() + 5 * 60 * 1000 && store.access_token) return store.access_token;
-
   const params = new URLSearchParams({
     grant_type: "refresh_token",
     client_id: Deno.env.get("ML_CLIENT_ID")!,
@@ -125,13 +123,12 @@ Deno.serve(async (req) => {
             (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
             0,
           );
-          // Faturamento (valor de venda) = soma dos itens (unit_price * quantity)
           const grossSales = (o.order_items ?? []).reduce(
             (acc: number, it: any) => acc + Number(it.unit_price ?? 0) * Number(it.quantity ?? 1),
             0,
           );
 
-          // Custo de frete via /shipments/{id}/costs (requer escopo read_shipments)
+          // Custo de frete via /shipments/{id}/costs (escopo read_shipments habilitado)
           let shippingCost = 0;
           const shippingId = o.shipping?.id;
           if (shippingId) {
@@ -143,13 +140,12 @@ Deno.serve(async (req) => {
               else if (typeof costs?.gross_amount === "number" && typeof costs?.receiver_cost === "number") {
                 shippingCost = Math.max(0, Number(costs.gross_amount) - Number(costs.receiver_cost));
               }
-            } catch (_) {
-              // sem permissão — manter 0
-            }
+            } catch (_) {}
           }
 
-          // amount_received = bruto menos tarifas ML (frete é custo separado, não deduzir aqui)
+          // amount_received = bruto menos tarifas ML (frete é custo separado)
           const netReceived = Math.max(0, grossSales - mlFees);
+
           const orderRow = {
             user_id: userId,
             store_id: store.id,
@@ -162,7 +158,6 @@ Deno.serve(async (req) => {
             ml_fees: mlFees,
           };
 
-          // Upsert order
           const { data: upOrder, error: upErr } = await admin
             .from("orders")
             .upsert(orderRow, { onConflict: "ml_order_id" })
@@ -173,7 +168,6 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          // Replace items
           await admin.from("order_items").delete().eq("order_id", upOrder.id);
 
           const itemsRows: any[] = [];
@@ -183,7 +177,6 @@ Deno.serve(async (req) => {
             const qty = Number(it.quantity ?? 1);
             const unit = Number(it.unit_price ?? 0);
 
-            // Upsert product (without overriding existing cost_price)
             let product_id: string | null = null;
             if (mlItemId) {
               const { data: existingProd } = await admin
@@ -194,12 +187,8 @@ Deno.serve(async (req) => {
                 .maybeSingle();
               if (existingProd) {
                 product_id = existingProd.id;
-                await admin.from("products").update({
-                  title,
-                  store_id: store.id,
-                }).eq("id", existingProd.id);
+                await admin.from("products").update({ title, store_id: store.id }).eq("id", existingProd.id);
               } else {
-                // Try fetch thumbnail/sku from ML
                 let thumbnail: string | null = null;
                 let sku: string | null = null;
                 if (!productCache.has(mlItemId)) {
@@ -227,7 +216,6 @@ Deno.serve(async (req) => {
               }
             }
 
-            // Get current cost_price snapshot
             let cost = 0;
             if (product_id) {
               const { data: p } = await admin.from("products").select("cost_price").eq("id", product_id).maybeSingle();
@@ -255,7 +243,7 @@ Deno.serve(async (req) => {
 
         offset += results.length;
         if (offset >= total) break;
-        if (offset > 5000) break; // safety
+        if (offset > 5000) break;
       }
 
       await admin.from("stores").update({ last_sync_at: new Date().toISOString() }).eq("id", store.id);
