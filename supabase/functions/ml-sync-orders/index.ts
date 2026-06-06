@@ -139,29 +139,22 @@ Deno.serve(async (req) => {
             try {
               // Endpoint principal: requer escopo read_shipments no OAuth
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
-              // Diagnóstico: capturar resposta real do 1º pedido para debug
-              if (!shipDiag) {
-                shipDiag = {
-                  order_id: String(o.id),
-                  keys: Object.keys(costs ?? {}),
-                  gross_amount: costs?.gross_amount,
-                  receiver_cost: costs?.receiver_cost,
-                  senders_cost: costs?.senders_cost,
-                  buyer_shipping_cost: (o.payments ?? []).map((p: any) => p.shipping_cost),
-                };
-              }
-              const sc = costs?.senders_cost;
+              // API ML retorna: costs.senders (objeto), costs.receiver (objeto), costs.gross_amount
+              // ERRADO era: senders_cost / receiver_cost — esses campos NÃO existem
+              const sc = costs?.senders;
               if (typeof sc === "number" && sc >= 0) {
                 shippingCost = sc;
               } else if (sc && typeof sc === "object") {
                 const v = Number(sc.cost ?? sc.amount ?? -1);
                 if (v >= 0) shippingCost = v;
               }
-              // senders_cost ausente: gross_amount − receiver_cost
+              // senders ausente: gross_amount − receiver.cost
               if (shippingCost === 0 && typeof costs?.gross_amount === "number") {
-                const diff = Math.max(0,
-                  Number(costs.gross_amount) - Number(costs.receiver_cost ?? 0)
-                );
+                const recv = costs?.receiver;
+                const receiverCost = typeof recv === "number"
+                  ? recv
+                  : Number(recv?.cost ?? recv?.amount ?? 0);
+                const diff = Math.max(0, Number(costs.gross_amount) - receiverCost);
                 shippingCost = diff;
               }
             } catch (e1) {
