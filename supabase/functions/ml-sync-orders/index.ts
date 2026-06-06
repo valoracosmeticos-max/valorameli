@@ -134,7 +134,31 @@ Deno.serve(async (req) => {
           // Custo de frete do vendedor (o que o seller paga ao ML líquido)
           let shippingCost = 0;
           const shippingId = o.shipping?.id;
-          if (shippingId) {
+
+          // Método 1: net_received_amount — para pedidos liquidados, o ML informa
+          // o valor efetivamente depositado. A diferença em relação ao grossSales-mlFees
+          // é exatamente o custo líquido de frete cobrado do seller.
+          // Fórmula: shipping = (grossSales - mlFees) - net_received_amount
+          const pmt0 = (o.payments ?? [])[0];
+          const mlNetDeposit = Number(pmt0?.net_received_amount ?? 0);
+          if (mlNetDeposit > 0) {
+            const diff = Math.round((grossSales - mlFees - mlNetDeposit) * 100) / 100;
+            if (diff > 0) shippingCost = diff;
+            if (shippingCost > 0) shippingWithCost++;
+            // Diagnóstico do 1º pedido resolvido pelo método net_received_amount
+            if (!shipDiag) {
+              shipDiag = {
+                method: "net_received_amount",
+                order_id: String(o.id),
+                net_received: mlNetDeposit,
+                gross_sales: grossSales,
+                ml_fees: mlFees,
+                shipping_calc: shippingCost,
+              };
+            }
+          }
+
+          if (shippingCost === 0 && shippingId) {
             let _shipErr = "";
             try {
               // Endpoint principal: requer escopo read_shipments no OAuth
