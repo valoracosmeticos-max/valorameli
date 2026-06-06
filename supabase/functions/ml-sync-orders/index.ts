@@ -139,6 +139,17 @@ Deno.serve(async (req) => {
             try {
               // Endpoint principal: requer escopo read_shipments no OAuth
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
+              // Diagnóstico: capturar resposta real do 1º pedido para debug
+              if (!shipDiag) {
+                shipDiag = {
+                  order_id: String(o.id),
+                  keys: Object.keys(costs ?? {}),
+                  gross_amount: costs?.gross_amount,
+                  receiver_cost: costs?.receiver_cost,
+                  senders_cost: costs?.senders_cost,
+                  buyer_shipping_cost: (o.payments ?? []).map((p: any) => p.shipping_cost),
+                };
+              }
               const sc = costs?.senders_cost;
               if (typeof sc === "number" && sc >= 0) {
                 shippingCost = sc;
