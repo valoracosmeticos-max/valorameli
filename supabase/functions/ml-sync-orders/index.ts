@@ -135,22 +135,35 @@ Deno.serve(async (req) => {
           let shippingCost = 0;
           const shippingId = o.shipping?.id;
 
-          // Método 1: net_received_amount — para pedidos liquidados, o ML informa
-          // o valor efetivamente depositado. A diferença em relação ao grossSales-mlFees
-          // é exatamente o custo líquido de frete cobrado do seller.
-          // Fórmula: shipping = (grossSales - mlFees) - net_received_amount
+          // Método 1: transaction_details.net_received_amount
+          // O ML popula este campo em todos os pedidos pagos (não só os liquidados).
+          // Representa o valor EFETIVAMENTE depositado ao seller após todas as
+          // deduções: tarifa de venda + frete líquido do seller.
+          // Fórmula: frete_seller = (grossSales - mlFees) - net_received_amount
+          //
+          // Exemplo pedido 05/06 R$532,03:
+          //   grossSales=532,03  mlFees=78,70  net_received=421,83
+          //   frete = (532,03-78,70) - 421,83 = 453,33 - 421,83 = 31,50 ✓
           const pmt0 = (o.payments ?? [])[0];
-          const mlNetDeposit = Number(pmt0?.net_received_amount ?? 0);
+          // transaction_details.net_received_amount é o campo correto e disponível imediatamente.
+          // payments[].net_received_amount (raiz) costuma vir 0 até a liquidação (~30 dias).
+          const txNetReceived = Number(pmt0?.transaction_details?.net_received_amount ?? 0);
+          const flatNetReceived = Number(pmt0?.net_received_amount ?? 0);
+          const mlNetDeposit = txNetReceived > 0 ? txNetReceived : flatNetReceived;
           if (mlNetDeposit > 0) {
-            const diff = Math.round((grossSales - mlFees - mlNetDeposit) * 100) / 100;
-            if (diff > 0) shippingCost = diff;
-            if (shippingCost > 0) shippingWithCost++;
-            // Diagnóstico do 1º pedido resolvido pelo método net_received_amount
+            const amountBeforeShipping = Math.round((grossSales - mlFees) * 100) / 100;
+            const diff = Math.round((amountBeforeShipping - mlNetDeposit) * 100) / 100;
+            if (diff >= 0) {
+              shippingCost = diff;
+              if (shippingCost > 0) shippingWithCost++;
+            }
+            // Diagnóstico do 1º pedido resolvido por este método
             if (!shipDiag) {
               shipDiag = {
-                method: "net_received_amount",
+                method: "transaction_details",
                 order_id: String(o.id),
-                net_received: mlNetDeposit,
+                tx_net_received: txNetReceived,
+                flat_net_received: flatNetReceived,
                 gross_sales: grossSales,
                 ml_fees: mlFees,
                 shipping_calc: shippingCost,
