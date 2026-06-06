@@ -139,14 +139,18 @@ Deno.serve(async (req) => {
             try {
               // Endpoint principal: requer escopo read_shipments no OAuth
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
-              // API ML retorna: costs.senders (objeto), costs.receiver (objeto), costs.gross_amount
-              // ERRADO era: senders_cost / receiver_cost — esses campos NÃO existem
+              // API ML retorna: costs.senders{cost,save}, costs.receiver{cost,save}, gross_amount
+              // Custo líquido do seller = senders.cost - senders.save
+              // senders.save = desconto/subsídio ML + contribuição do comprador (quando houver)
               const sc = costs?.senders;
               if (typeof sc === "number" && sc >= 0) {
                 shippingCost = sc;
               } else if (sc && typeof sc === "object") {
-                const v = Number(sc.cost ?? sc.amount ?? -1);
-                if (v >= 0) shippingCost = v;
+                const gross = Number(sc.cost ?? -1);
+                const save  = Number(sc.save ?? 0);
+                const net   = gross - save;
+                if (net >= 0) shippingCost = net;
+                else if (gross >= 0) shippingCost = gross;
               }
               // senders ausente: gross_amount − receiver.cost
               if (shippingCost === 0 && typeof costs?.gross_amount === "number") {
