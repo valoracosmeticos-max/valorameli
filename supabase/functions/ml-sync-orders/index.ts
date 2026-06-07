@@ -122,65 +122,49 @@ Deno.serve(async (req) => {
         if (results.length === 0) break;
 
         for (const o of results) {
-          const mlFees = (o.order_items ?? []).reduce(
-            (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
-            0,
-          );
           const grossSales = (o.order_items ?? []).reduce(
             (acc: number, it: any) => acc + Number(it.unit_price ?? 0) * Number(it.quantity ?? 1),
             0,
           );
 
-          // Custo de frete do vendedor (o que o seller paga ao ML líquido)
+          let mlFees = 0;
           let shippingCost = 0;
-          const shippingId = o.shipping?.id;
+          let bonusAndOthers = 0;
 
-          // Método 1: transaction_details.net_received_amount
-          // O ML popula este campo em todos os pedidos pagos (não só os liquidados).
-          // Representa o valor EFETIVAMENTE depositado ao seller após todas as
-          // deduções: tarifa de venda + frete líquido do seller.
-          // Fórmula: frete_seller = (grossSales - mlFees) - net_received_amount
-          //
-          // Exemplo pedido 05/06 R$532,03:
-          //   grossSales=532,03  mlFees=78,70  net_received=421,83
-          //   frete = (532,03-78,70) - 421,83 = 453,33 - 421,83 = 31,50 ✓
+          // 1. EXTRAÇÃO EXATA VIA FEE_DETAILS (Ignora estimativas matemáticas)
+          // payments[0].fee_details contém cada cobrança do ML separada por tipo
           const pmt0 = (o.payments ?? [])[0];
-          // transaction_details.net_received_amount é o campo correto e disponível imediatamente.
-          // payments[].net_received_amount (raiz) costuma vir 0 até a liquidação (~30 dias).
-          const txNetReceived = Number(pmt0?.transaction_details?.net_received_amount ?? 0);
-          const flatNetReceived = Number(pmt0?.net_received_amount ?? 0);
-          const mlNetDeposit = txNetReceived > 0 ? txNetReceived : flatNetReceived;
-          if (mlNetDeposit > 0) {
-            const amountBeforeShipping = Math.round((grossSales - mlFees) * 100) / 100;
-            const diff = Math.round((amountBeforeShipping - mlNetDeposit) * 100) / 100;
-            if (diff >= 0) {
-              shippingCost = diff;
-              if (shippingCost > 0) shippingWithCost++;
+
+          if (pmt0 && Array.isArray(pmt0.fee_details)) {
+            for (const fee of pmt0.fee_details) {
+              if (fee.type === "meli_fee") {
+                mlFees += Number(fee.amount ?? 0);
+              } else if (fee.type === "shipping_fee") {
+                shippingCost += Number(fee.amount ?? 0);
+              } else {
+                // Captura estornos, cupons e bônus (como os R$ 11,75)
+                bonusAndOthers += Number(fee.amount ?? 0);
+              }
             }
-            // Diagnóstico do 1º pedido resolvido por este método
-            if (!shipDiag) {
-              shipDiag = {
-                method: "transaction_details",
-                order_id: String(o.id),
-                tx_net_received: txNetReceived,
-                flat_net_received: flatNetReceived,
-                gross_sales: grossSales,
-                ml_fees: mlFees,
-                shipping_calc: shippingCost,
-              };
-            }
+            // Garantir valores positivos (fee.amount pode vir negativo na API)
+            mlFees = Math.abs(mlFees);
+            shippingCost = Math.abs(shippingCost);
           }
 
-          if (shippingCost === 0 && shippingId) {
-            let _shipErr = "";
-            try {
-              // BUG CORRIGIDO: senders É UM ARRAY no ML API, não um objeto!
-              // Estrutura real: { gross_amount, receiver: {cost}, senders: [{cost, save}] }
-              // senders[0].cost = custo LÍQUIDO do seller (após subsídios ML)
-              // gross_amount = custo BRUTO da transportadora (NUNCA usar diretamente)
-              const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
+          // Fallback de Tarifa: apenas se a API não retornar o fee_details corretamente
+          if (mlFees === 0) {
+            mlFees = (o.order_items ?? []).reduce(
+              (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
+              0,
+            );
+          }
 
-              // senders pode ser array [{cost,save,...}] ou objeto {cost,save}
+          // 2. BUSCA DO FRETE CORRETO (Se não veio no pagamento, busca na API de envios)
+          const shippingId = o.shipping?.id;
+          if (shippingCost === 0 && shippingId) {
+            try {
+              const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
+              // senders é um ARRAY no ML API: [{cost, save, ...}]
               const sendersRaw = costs?.senders;
               const sc = Array.isArray(sendersRaw) ? sendersRaw[0] : sendersRaw;
 
@@ -188,52 +172,43 @@ Deno.serve(async (req) => {
                 shipDiag = {
                   order_id: String(o.id),
                   gross_amount: costs?.gross_amount,
-                  senders_raw_is_array: Array.isArray(sendersRaw),
+                  senders_is_array: Array.isArray(sendersRaw),
                   senders_0: sc,
                   receiver: costs?.receiver,
+                  fee_details: pmt0?.fee_details,
                 };
               }
 
               if (typeof sc === "number" && sc >= 0) {
                 shippingCost = sc;
               } else if (sc && typeof sc === "object") {
-                const gross = Number(sc.cost ?? -1);
+                const gross = Number(sc.cost ?? 0);
                 const save  = Number(sc.save ?? 0);
-                const net   = gross - save;
-                if (net >= 0) shippingCost = net;
-                else if (gross >= 0) shippingCost = gross;
-              }
-              // Fallback dentro do /costs: gross_amount − receiver.cost
-              // Só usar se senders[0].cost não estiver disponível
-              if (shippingCost === 0 && typeof costs?.gross_amount === "number") {
+                shippingCost = Math.max(0, gross - save);
+              } else if (typeof costs?.gross_amount === "number") {
+                // Fallback secundário: gross_amount - receiver.cost
                 const recv = costs?.receiver;
                 const receiverCost = typeof recv === "number"
                   ? recv
                   : Number(recv?.cost ?? recv?.amount ?? 0);
-                const diff = Math.max(0, Number(costs.gross_amount) - receiverCost);
-                shippingCost = diff;
+                shippingCost = Math.max(0, Number(costs.gross_amount) - receiverCost);
               }
             } catch (e1) {
-              _shipErr = String(e1).slice(0, 200);
-              // Fallback: /shipments/{id} se /costs falhar
-              try {
-                const shipment = await mlGet(`${ML_API}/shipments/${shippingId}`, token);
-                const c = shipment?.cost ?? {};
-                const base = Number(c.amount ?? 0);
-                const buyerPaid = (o.payments ?? []).reduce(
-                  (s: number, p: any) => s + Math.max(0, Number(p.shipping_cost ?? 0)), 0
-                );
-                shippingCost = Math.max(0, base - buyerPaid);
-              } catch (e2) {
-                _shipErr += ` | /shipments: ${String(e2).slice(0, 100)}`;
-              }
+              lastShipErr = String(e1).slice(0, 100);
             }
-            if (_shipErr) lastShipErr = _shipErr;
-            if (shippingCost > 0) shippingWithCost++;
           }
+          if (shippingCost > 0) shippingWithCost++;
 
-          // amount_received = bruto menos tarifas ML (frete é custo separado)
-          const netReceived = Math.max(0, grossSales - mlFees);
+          // 3. CÁLCULO REAL DO VALOR LÍQUIDO RECEBIDO
+          // Prioridade: transaction_details > net_received_amount > cálculo manual
+          const txNetReceived = Number(pmt0?.transaction_details?.net_received_amount ?? 0);
+          const flatNetReceived = Number(pmt0?.net_received_amount ?? 0);
+          let netReceived = txNetReceived > 0 ? txNetReceived : flatNetReceived;
+
+          // Se a API não informar o valor depositado, calculamos deduzindo TUDO
+          if (netReceived === 0) {
+            netReceived = Math.max(0, grossSales - mlFees - shippingCost + bonusAndOthers);
+          }
 
           const orderRow = {
             user_id: userId,
