@@ -127,76 +127,62 @@ Deno.serve(async (req) => {
           let mlFees = 0;
           let shippingCost = 0;
           let paymentNet = 0;
-          let isShippingIncludedInPayment = false;
 
-          // 1. DADOS FINANCEIROS EXATOS via /collections/payments/{id}
-          // orders/search omite fee_details completo — buscamos direto no pagamento
           const pmt0 = (o.payments ?? [])[0];
           const paymentId = pmt0?.id;
 
+          // 1. BUSCA EXATA DA TARIFA via /v1/payments/{id}
+          // /collections/payments/ está deprecado — endpoint correto é /v1/payments/
           if (paymentId) {
             try {
-              const pmtData = await mlGet(`${ML_API}/collections/payments/${paymentId}`, token);
-
+              const pmtData = await mlGet(`${ML_API}/v1/payments/${paymentId}`, token);
               if (pmtData && Array.isArray(pmtData.fee_details)) {
                 for (const fee of pmtData.fee_details) {
                   if (fee.type === "meli_fee") {
                     mlFees += Math.abs(Number(fee.amount ?? 0));
                   }
-                  // Em casos raros o frete já vem descontado no extrato de pagamento
-                  if (fee.type === "shipping_fee") {
-                    shippingCost += Math.abs(Number(fee.amount ?? 0));
-                    isShippingIncludedInPayment = true;
-                  }
                 }
               }
-
-              // net_received_amount = venda - tarifa real + estornos/bônus
-              // Ex: 532,03 - 90,45 + 11,75 = 453,33
-              paymentNet = Number(pmtData?.transaction_details?.net_received_amount ?? 0);
-            } catch (errPmt) {
-              lastShipErr = `pmt ${paymentId}: ${String(errPmt).slice(0, 80)}`;
+            } catch (_errPmt) {
+              // silenciamos — fallback de tarifa assume abaixo
             }
           }
 
-          // Fallbacks de segurança
+          // net_received_amount da busca de pedidos JÁ É o valor final pós-frete e pós-estorno
+          paymentNet = Number(pmt0?.transaction_details?.net_received_amount ?? 0);
+
+          // Fallback de tarifa (caso /v1/payments falhe)
           if (mlFees === 0) {
             mlFees = (o.order_items ?? []).reduce(
               (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
               0,
             );
           }
-          if (paymentNet === 0) {
-            paymentNet = Number(
-              pmt0?.transaction_details?.net_received_amount ?? (grossSales - mlFees)
-            );
-          }
 
-          // 2. FRETE: senders[0].cost é o valor LITERAL final ao seller
-          // Regra: ignorar se mode="custom" (envio próprio) — não passamos pelo ML Envios
+          // 2. CUSTO DO FRETE via /shipments/{id}/costs — senders[0].cost = custo literal
+          // Se o vendedor envia por conta própria, senders não existirá → shippingCost = 0
           const shippingId = o.shipping?.id;
-          const shippingMode = o.shipping?.mode;
 
-          if (shippingMode !== "custom" && shippingMode !== "not_specified" && shippingId && shippingCost === 0) {
+          if (shippingId) {
             try {
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
-              const sendersRaw = costs?.senders;
+              const sc = costs?.senders;
 
               if (!shipDiag) {
                 shipDiag = {
                   order_id: String(o.id),
-                  shipping_mode: shippingMode,
+                  shipping_mode: o.shipping?.mode,
                   gross_amount: costs?.gross_amount,
-                  senders_is_array: Array.isArray(sendersRaw),
-                  senders_0: Array.isArray(sendersRaw) ? sendersRaw[0] : sendersRaw,
+                  senders_is_array: Array.isArray(sc),
+                  senders_0: Array.isArray(sc) ? sc[0] : sc,
                   receiver: costs?.receiver,
                 };
               }
 
-              if (Array.isArray(sendersRaw) && sendersRaw.length > 0) {
-                shippingCost = Number(sendersRaw[0].cost ?? 0);
-              } else if (sendersRaw && typeof sendersRaw === "object") {
-                shippingCost = Number(sendersRaw.cost ?? 0);
+              if (Array.isArray(sc) && sc.length > 0) {
+                shippingCost = Number(sc[0].cost ?? 0);
+              } else if (sc && typeof sc === "object" && !Array.isArray(sc)) {
+                shippingCost = Number(sc.cost ?? 0);
               }
             } catch (e1) {
               lastShipErr = String(e1).slice(0, 100);
@@ -205,13 +191,11 @@ Deno.serve(async (req) => {
           if (shippingCost > 0) shippingWithCost++;
 
           // 3. RECEBIDO FINAL
-          // ML debita o frete separadamente do saldo (não reflete em net_received_amount).
-          // Subtração manual obrigatória, exceto se já veio no fee_details do pagamento.
-          let netReceived = paymentNet;
-          if (shippingCost > 0 && !isShippingIncludedInPayment) {
-            netReceived = paymentNet - shippingCost;
-          }
-          netReceived = Math.max(0, netReceived);
+          // paymentNet (pmt0) já é o valor real depositado no Mercado Pago (ex: R$421,83).
+          // Fallback: grossSales - mlFees - shippingCost quando net_received_amount não estiver disponível.
+          const netReceived = paymentNet > 0
+            ? paymentNet
+            : Math.max(0, grossSales - mlFees - shippingCost);
 
           const orderRow = {
             user_id: userId,
