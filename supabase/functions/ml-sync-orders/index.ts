@@ -174,12 +174,26 @@ Deno.serve(async (req) => {
           if (shippingCost === 0 && shippingId) {
             let _shipErr = "";
             try {
-              // Endpoint principal: requer escopo read_shipments no OAuth
+              // BUG CORRIGIDO: senders É UM ARRAY no ML API, não um objeto!
+              // Estrutura real: { gross_amount, receiver: {cost}, senders: [{cost, save}] }
+              // senders[0].cost = custo LÍQUIDO do seller (após subsídios ML)
+              // gross_amount = custo BRUTO da transportadora (NUNCA usar diretamente)
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
-              // API ML retorna: costs.senders{cost,save}, costs.receiver{cost,save}, gross_amount
-              // Custo líquido do seller = senders.cost - senders.save
-              // senders.save = desconto/subsídio ML + contribuição do comprador (quando houver)
-              const sc = costs?.senders;
+
+              // senders pode ser array [{cost,save,...}] ou objeto {cost,save}
+              const sendersRaw = costs?.senders;
+              const sc = Array.isArray(sendersRaw) ? sendersRaw[0] : sendersRaw;
+
+              if (!shipDiag) {
+                shipDiag = {
+                  order_id: String(o.id),
+                  gross_amount: costs?.gross_amount,
+                  senders_raw_is_array: Array.isArray(sendersRaw),
+                  senders_0: sc,
+                  receiver: costs?.receiver,
+                };
+              }
+
               if (typeof sc === "number" && sc >= 0) {
                 shippingCost = sc;
               } else if (sc && typeof sc === "object") {
@@ -189,7 +203,8 @@ Deno.serve(async (req) => {
                 if (net >= 0) shippingCost = net;
                 else if (gross >= 0) shippingCost = gross;
               }
-              // senders ausente: gross_amount − receiver.cost
+              // Fallback dentro do /costs: gross_amount − receiver.cost
+              // Só usar se senders[0].cost não estiver disponível
               if (shippingCost === 0 && typeof costs?.gross_amount === "number") {
                 const recv = costs?.receiver;
                 const receiverCost = typeof recv === "number"
@@ -200,34 +215,15 @@ Deno.serve(async (req) => {
               }
             } catch (e1) {
               _shipErr = String(e1).slice(0, 200);
-              // Fallback: /shipments/{id} — sem escopo especial
-              // cost.amount é o valor líquido após descontos/contribuição do comprador
-              // cost.gross_amount pode incluir seguro de valor declarado (inflado)
+              // Fallback: /shipments/{id} se /costs falhar
               try {
                 const shipment = await mlGet(`${ML_API}/shipments/${shippingId}`, token);
                 const c = shipment?.cost ?? {};
-                // Capturar diagnóstico do 1º pedido que usa fallback
-                if (!shipDiag) {
-                  shipDiag = {
-                    order_id: String(o.id),
-                    cost_keys: Object.keys(c),
-                    gross_amount: c.gross_amount,
-                    amount: c.amount,
-                    save: c.save,
-                    discount: c.discount,
-                    buyer_shipping_cost: (o.payments ?? []).map((p: any) => p.shipping_cost),
-                  };
-                }
-                // Preferir cost.amount (líquido) sobre cost.gross_amount (pode ser inflado)
-                const base = Number(c.amount ?? c.gross_amount ?? 0);
+                const base = Number(c.amount ?? 0);
                 const buyerPaid = (o.payments ?? []).reduce(
                   (s: number, p: any) => s + Math.max(0, Number(p.shipping_cost ?? 0)), 0
                 );
-                // Se cost.amount < buyerPaid: já é o líquido do seller (não subtrair)
-                // Se cost.amount >= buyerPaid: subtrair contribuição do comprador
-                shippingCost = base > buyerPaid
-                  ? Math.max(0, base - buyerPaid)
-                  : Math.max(0, base);
+                shippingCost = Math.max(0, base - buyerPaid);
               } catch (e2) {
                 _shipErr += ` | /shipments: ${String(e2).slice(0, 100)}`;
               }
