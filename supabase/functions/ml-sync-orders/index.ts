@@ -128,13 +128,13 @@ Deno.serve(async (req) => {
           let shippingCost = 0;
           let paymentNet = 0;
 
+          // 1. DADOS DO PAGAMENTO (Tarifas Reais)
           const pmt0 = (o.payments ?? [])[0];
           const paymentId = pmt0?.id;
 
-          // 1. BUSCA EXATA DA TARIFA via /v1/payments/{id}
-          // /collections/payments/ está deprecado — endpoint correto é /v1/payments/
           if (paymentId) {
             try {
+              // Endpoint correto e atual do ML — /collections/payments/ está bloqueado
               const pmtData = await mlGet(`${ML_API}/v1/payments/${paymentId}`, token);
               if (pmtData && Array.isArray(pmtData.fee_details)) {
                 for (const fee of pmtData.fee_details) {
@@ -143,27 +143,34 @@ Deno.serve(async (req) => {
                   }
                 }
               }
+              // Líquido depositado direto na raiz do extrato de pagamento
+              paymentNet = Number(pmtData?.transaction_details?.net_received_amount ?? 0);
             } catch (_errPmt) {
-              // silenciamos — fallback de tarifa assume abaixo
+              // falha silenciosa — fallbacks abaixo assumem
             }
           }
 
-          // net_received_amount da busca de pedidos JÁ É o valor final pós-frete e pós-estorno
-          paymentNet = Number(pmt0?.transaction_details?.net_received_amount ?? 0);
-
-          // Fallback de tarifa (caso /v1/payments falhe)
+          // Fallbacks de segurança
+          if (paymentNet === 0) {
+            paymentNet = Number(pmt0?.transaction_details?.net_received_amount ?? 0);
+          }
           if (mlFees === 0) {
             mlFees = (o.order_items ?? []).reduce(
               (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
               0,
             );
           }
+          if (paymentNet === 0) {
+            paymentNet = grossSales - mlFees;
+          }
 
-          // 2. CUSTO DO FRETE via /shipments/{id}/costs — senders[0].cost = custo literal
-          // Se o vendedor envia por conta própria, senders não existirá → shippingCost = 0
+          // 2. CUSTO DE FRETE via /shipments/{id}/costs — senders[0].cost = custo literal
+          // REGRA: mode ou logistic_type "custom" = envio próprio → frete ZERO, não chamar API
           const shippingId = o.shipping?.id;
+          const shippingMode = o.shipping?.mode;
+          const logisticType = o.shipping?.logistic_type;
 
-          if (shippingId) {
+          if (shippingId && shippingMode !== "custom" && logisticType !== "custom") {
             try {
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
               const sc = costs?.senders;
@@ -171,7 +178,8 @@ Deno.serve(async (req) => {
               if (!shipDiag) {
                 shipDiag = {
                   order_id: String(o.id),
-                  shipping_mode: o.shipping?.mode,
+                  shipping_mode: shippingMode,
+                  logistic_type: logisticType,
                   gross_amount: costs?.gross_amount,
                   senders_is_array: Array.isArray(sc),
                   senders_0: Array.isArray(sc) ? sc[0] : sc,
@@ -191,11 +199,10 @@ Deno.serve(async (req) => {
           if (shippingCost > 0) shippingWithCost++;
 
           // 3. RECEBIDO FINAL
-          // paymentNet (pmt0) já é o valor real depositado no Mercado Pago (ex: R$421,83).
-          // Fallback: grossSales - mlFees - shippingCost quando net_received_amount não estiver disponível.
-          const netReceived = paymentNet > 0
-            ? paymentNet
-            : Math.max(0, grossSales - mlFees - shippingCost);
+          // paymentNet = venda bruta - tarifa ML + estornos (via /v1/payments).
+          // Frete debitado separadamente pelo ML → subtraímos aqui.
+          // Se envio próprio: shippingCost = 0, netReceived = paymentNet intacto.
+          const netReceived = Math.max(0, paymentNet - shippingCost);
 
           const orderRow = {
             user_id: userId,
