@@ -122,16 +122,15 @@ Deno.serve(async (req) => {
         if (results.length === 0) break;
 
         for (const o of results) {
-          // total_amount do pedido (campo direto, mais confiável que somar itens)
           const grossSales = Number(o.total_amount ?? 0);
 
           let mlFees = 0;
           let shippingCost = 0;
-          let paymentNet = 0; // net_received_amount = venda - tarifa + estornos
+          let paymentNet = 0;
+          let isShippingIncludedInPayment = false;
 
           // 1. DADOS FINANCEIROS EXATOS via /collections/payments/{id}
-          // A rota orders/search omite fee_details completo.
-          // /collections/payments/{id} traz tarifa real (meli_fee) e net_received_amount.
+          // orders/search omite fee_details completo — buscamos direto no pagamento
           const pmt0 = (o.payments ?? [])[0];
           const paymentId = pmt0?.id;
 
@@ -144,10 +143,15 @@ Deno.serve(async (req) => {
                   if (fee.type === "meli_fee") {
                     mlFees += Math.abs(Number(fee.amount ?? 0));
                   }
+                  // Em casos raros o frete já vem descontado no extrato de pagamento
+                  if (fee.type === "shipping_fee") {
+                    shippingCost += Math.abs(Number(fee.amount ?? 0));
+                    isShippingIncludedInPayment = true;
+                  }
                 }
               }
 
-              // net_received_amount = venda bruta - tarifa ML + estornos/bônus
+              // net_received_amount = venda - tarifa real + estornos/bônus
               // Ex: 532,03 - 90,45 + 11,75 = 453,33
               paymentNet = Number(pmtData?.transaction_details?.net_received_amount ?? 0);
             } catch (errPmt) {
@@ -155,26 +159,25 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Fallback de tarifa (caso /collections/payments falhe)
+          // Fallbacks de segurança
           if (mlFees === 0) {
             mlFees = (o.order_items ?? []).reduce(
               (acc: number, it: any) => acc + Number(it.sale_fee ?? 0) * Number(it.quantity ?? 1),
               0,
             );
           }
-          // Fallback de paymentNet
           if (paymentNet === 0) {
             paymentNet = Number(
-              pmt0?.transaction_details?.net_received_amount
-              ?? (grossSales - mlFees)
+              pmt0?.transaction_details?.net_received_amount ?? (grossSales - mlFees)
             );
           }
 
           // 2. FRETE: senders[0].cost é o valor LITERAL final ao seller
-          // Comprovado pelo JSON: cost=31.5, save=21 → save já está contabilizado em cost
-          // NÃO fazer cost - save (causava 31.5 - 21 = 10.5, errado)
+          // Regra: ignorar se mode="custom" (envio próprio) — não passamos pelo ML Envios
           const shippingId = o.shipping?.id;
-          if (shippingId) {
+          const shippingMode = o.shipping?.mode;
+
+          if (shippingMode !== "custom" && shippingMode !== "not_specified" && shippingId && shippingCost === 0) {
             try {
               const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
               const sendersRaw = costs?.senders;
@@ -182,6 +185,7 @@ Deno.serve(async (req) => {
               if (!shipDiag) {
                 shipDiag = {
                   order_id: String(o.id),
+                  shipping_mode: shippingMode,
                   gross_amount: costs?.gross_amount,
                   senders_is_array: Array.isArray(sendersRaw),
                   senders_0: Array.isArray(sendersRaw) ? sendersRaw[0] : sendersRaw,
@@ -201,8 +205,13 @@ Deno.serve(async (req) => {
           if (shippingCost > 0) shippingWithCost++;
 
           // 3. RECEBIDO FINAL
-          // paymentNet (453,33) - frete (31,50) = 421,83 ← idêntico ao painel ML
-          const netReceived = Math.max(0, paymentNet - shippingCost);
+          // ML debita o frete separadamente do saldo (não reflete em net_received_amount).
+          // Subtração manual obrigatória, exceto se já veio no fee_details do pagamento.
+          let netReceived = paymentNet;
+          if (shippingCost > 0 && !isShippingIncludedInPayment) {
+            netReceived = paymentNet - shippingCost;
+          }
+          netReceived = Math.max(0, netReceived);
 
           const orderRow = {
             user_id: userId,
