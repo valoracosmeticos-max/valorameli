@@ -11,6 +11,8 @@ import Produtos from "./pages/Produtos";
 import Configuracoes from "./pages/Configuracoes";
 import SetupLojas from "./pages/SetupLojas";
 import CustosAdicionais from "./pages/CustosAdicionais";
+import FluxoCaixa from "./pages/FluxoCaixa";
+import Compras from "./pages/Compras";
 import Auth from "./pages/Auth";
 import MLCallback from "./pages/MLCallback";
 import NotFound from "./pages/NotFound";
@@ -31,6 +33,8 @@ const App = () => (
             <Route path="/pedidos" element={<Pedidos />} />
             <Route path="/produtos" element={<Produtos />} />
             <Route path="/custos-adicionais" element={<CustosAdicionais />} />
+            <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
+            <Route path="/compras" element={<Compras />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
             <Route path="/setup-lojas" element={<SetupLojas />} />
           </Route>

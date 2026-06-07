@@ -21,8 +21,9 @@ interface StoreRow {
 const Configuracoes = () => {
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshingId, setRefreshingId] = useState<string | null>(null);
-  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [refreshingId,  setRefreshingId]  = useState<string | null>(null);
+  const [syncingId,     setSyncingId]     = useState<string | null>(null);
+  const [syncingMpId,   setSyncingMpId]   = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -49,6 +50,20 @@ const Configuracoes = () => {
     }
     toast.success("Token renovado");
     load();
+  };
+
+  const syncPayments = async (storeId: string) => {
+    setSyncingMpId(storeId);
+    toast.info("Sincronizando pagamentos Mercado Pago... isso pode levar alguns minutos.");
+    const { data, error } = await supabase.functions.invoke("mp-sync-payments", {
+      body: { store_id: storeId, days: 90 },
+    });
+    setSyncingMpId(null);
+    if (error) {
+      toast.error("Falha ao sincronizar MP: " + error.message);
+      return;
+    }
+    toast.success(`Pagamentos MP sincronizados: ${data?.synced ?? 0} registro(s)`);
   };
 
   const syncStore = async (storeId: string) => {
@@ -143,6 +158,15 @@ const Configuracoes = () => {
                   >
                     <DownloadCloud className={`h-3.5 w-3.5 mr-1.5 ${syncingId === s.id ? "animate-pulse" : ""}`} />
                     {syncingId === s.id ? "Sincronizando..." : "Sincronizar"}
+                  </Button>
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => syncPayments(s.id)}
+                    disabled={syncingMpId === s.id}
+                    title="Sincronizar pagamentos do Mercado Pago"
+                  >
+                    <DownloadCloud className={`h-3.5 w-3.5 mr-1.5 ${syncingMpId === s.id ? "animate-pulse" : ""}`} />
+                    {syncingMpId === s.id ? "Sync MP..." : "Pagamentos MP"}
                   </Button>
                   <Button
                     size="sm" variant="outline"

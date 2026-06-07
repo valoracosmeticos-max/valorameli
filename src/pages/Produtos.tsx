@@ -19,6 +19,7 @@ interface ProductRow {
   sku: string | null;
   thumbnail: string | null;
   cost_price: number;
+  stock: number;
 }
 interface StoreRow { id: string; name: string }
 
@@ -31,15 +32,16 @@ const Produtos = () => {
   const [loading, setLoading] = useState(true);
   const [storeFilter, setStoreFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [edits,       setEdits]       = useState<Record<string, string>>({});
+  const [stockEdits,  setStockEdits]  = useState<Record<string, string>>({});
+  const [savingId,    setSavingId]    = useState<string | null>(null);
   const [avgShipping, setAvgShipping] = useState<Record<string, number>>({});
 
   const load = async () => {
     setLoading(true);
     const [{ data: storesData }, { data: prodData, error }, { data: itemsData }] = await Promise.all([
       supabase.from("stores").select("id, name").order("created_at"),
-      supabase.from("products").select("id, store_id, ml_item_id, title, sku, thumbnail, cost_price").order("title"),
+      supabase.from("products").select("id, store_id, ml_item_id, title, sku, thumbnail, cost_price, stock").order("title"),
       supabase.from("order_items").select("product_id, order_id").not("product_id", "is", null),
     ]);
     if (error) toast.error(error.message);
@@ -87,6 +89,22 @@ const Produtos = () => {
   }, [products, storeFilter, search]);
 
   const storeName = (id: string) => stores.find((s) => s.id === id)?.name ?? "—";
+
+  const saveStock = async (p: ProductRow) => {
+    const raw = stockEdits[p.id];
+    if (raw === undefined) return;
+    const value = parseInt(raw, 10);
+    if (Number.isNaN(value) || value < 0) { toast.error("Estoque inválido"); return; }
+    if (value === p.stock) { setStockEdits((prev) => { const n = { ...prev }; delete n[p.id]; return n; }); return; }
+    const { error } = await supabase
+      .from("products")
+      .update({ stock: value, stock_updated_at: new Date().toISOString() })
+      .eq("id", p.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Estoque atualizado");
+    setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, stock: value } : x)));
+    setStockEdits((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
+  };
 
   const saveCost = async (p: ProductRow) => {
     const raw = edits[p.id];
@@ -171,6 +189,7 @@ const Produtos = () => {
                     <TableHead>Loja</TableHead>
                     <TableHead>SKU</TableHead>
                     <TableHead className="text-right">Frete Médio</TableHead>
+                    <TableHead className="text-right w-28">Estoque</TableHead>
                     <TableHead className="text-right">Custo (R$)</TableHead>
                     <TableHead className="w-20"></TableHead>
                   </TableRow>
@@ -200,6 +219,17 @@ const Produtos = () => {
                         <TableCell className="text-sm text-muted-foreground">{p.sku ?? "—"}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
                           {avgShipping[p.id] > 0 ? `-${fmtBRL(avgShipping[p.id])}` : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            min="0"
+                            className="w-20 ml-auto text-right"
+                            value={stockEdits[p.id] ?? String(p.stock ?? 0)}
+                            onChange={(e) => setStockEdits((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                            onBlur={() => saveStock(p)}
+                          />
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
