@@ -48,7 +48,11 @@ const FluxoCaixa = () => {
       toast.error("Falha ao sincronizar MP: " + error.message);
       return;
     }
-    toast.success(`Sincronização concluída: ${data?.synced ?? 0} pagamento(s)`);
+    const s = data?.summary?.[0];
+    const synced = s?.synced ?? 0;
+    const fetched = s?.fetched ?? 0;
+    if (s?.error) toast.warning(`Sync MP: ${s.error}`);
+    else toast.success(`Sincronização concluída: ${synced} salvo(s) de ${fetched} buscado(s)`);
     refetch();
   };
 

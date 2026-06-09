@@ -83,9 +83,11 @@ Deno.serve(async (req) => {
       while (true) {
         // Buscar pagamentos do período via MP API
         // external_reference = ml_order_id → cruzamento direto com orders
+        // collector.id filtra pagamentos RECEBIDOS pelo seller (não feitos por ele como comprador)
         const url = `${MP_API}/v1/payments/search`
           + `?sort=date_created&criteria=desc`
           + `&range=date_created&begin_date=${beginDate}&end_date=${endDate}`
+          + `&collector.id=${store.ml_seller_id}`
           + `&offset=${offset}&limit=${limit}`;
 
         let data: any;
@@ -124,6 +126,11 @@ Deno.serve(async (req) => {
             orderDbId = ord?.id ?? null;
           }
 
+          // net_received_amount fica em transaction_details no search endpoint
+          const netReceived =
+            Number(p.transaction_details?.net_received_amount ?? 0) ||
+            Number(p.net_received_amount ?? 0);
+
           const row = {
             user_id:              userId,
             store_id:             store.id,
@@ -135,7 +142,7 @@ Deno.serve(async (req) => {
             money_release_date:   p.money_release_date  ?? null,
             money_release_status: p.money_release_status ?? null,
             transaction_amount:   Number(p.transaction_amount  ?? 0),
-            net_received_amount:  Number(p.net_received_amount ?? 0),
+            net_received_amount:  netReceived,
             fee_amount:           Math.abs(feeTotal),
             shipping_fee_amount:  shippingFeeAmount,
             financing_fee_amount: financingFeeAmount,
