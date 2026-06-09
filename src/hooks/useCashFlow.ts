@@ -33,10 +33,10 @@ export const useCashFlow = (storeId: string, days = 90) => {
   const beginDate = new Date(Date.now() - days * 86400_000);
 
   // ── Pagamentos (para PMR + calendário) ─────────────────────────────
-  const { data: releases = [], isLoading: loadingReleases } = useQuery({
+  const { data: releases = [], isLoading: loadingReleases, refetch: refetchReleases } = useQuery({
     queryKey: ["payments_releases", storeId, days],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("payments_releases")
         .select(
           "mp_payment_id, ml_order_id, money_release_date, money_release_status, " +
@@ -46,7 +46,7 @@ export const useCashFlow = (storeId: string, days = 90) => {
         .not("money_release_date", "is", null)
         .order("money_release_date", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as ReleaseEvent[];
+      return ((data ?? []) as unknown) as ReleaseEvent[];
     },
     enabled: !!storeId,
   });
