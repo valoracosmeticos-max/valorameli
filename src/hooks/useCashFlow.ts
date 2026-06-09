@@ -200,5 +200,5 @@ export const useCashFlow = (storeId: string, days = 90) => {
       isBefore(parseISO(r.money_release_date), today)
   );
 
-  return { indicators, upcomingReleases, pastReleases, isLoading, releases };
+  return { indicators, upcomingReleases, pastReleases, isLoading, releases, refetch: refetchReleases };
 };
