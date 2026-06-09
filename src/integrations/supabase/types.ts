@@ -160,6 +160,99 @@ export type Database = {
           },
         ]
       }
+      payments_releases: {
+        Row: {
+          coupon_amount: number | null
+          created_at: string
+          date_approved: string | null
+          date_created: string | null
+          fee_amount: number | null
+          financing_fee_amount: number | null
+          id: string
+          installments: number | null
+          ml_order_id: string | null
+          money_release_date: string | null
+          money_release_status: string | null
+          mp_payment_id: string
+          net_received_amount: number | null
+          order_db_id: string | null
+          payment_method_id: string | null
+          payment_method_type: string | null
+          shipping_fee_amount: number | null
+          status: string | null
+          store_id: string
+          taxes_amount: number | null
+          transaction_amount: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          coupon_amount?: number | null
+          created_at?: string
+          date_approved?: string | null
+          date_created?: string | null
+          fee_amount?: number | null
+          financing_fee_amount?: number | null
+          id?: string
+          installments?: number | null
+          ml_order_id?: string | null
+          money_release_date?: string | null
+          money_release_status?: string | null
+          mp_payment_id: string
+          net_received_amount?: number | null
+          order_db_id?: string | null
+          payment_method_id?: string | null
+          payment_method_type?: string | null
+          shipping_fee_amount?: number | null
+          status?: string | null
+          store_id: string
+          taxes_amount?: number | null
+          transaction_amount?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          coupon_amount?: number | null
+          created_at?: string
+          date_approved?: string | null
+          date_created?: string | null
+          fee_amount?: number | null
+          financing_fee_amount?: number | null
+          id?: string
+          installments?: number | null
+          ml_order_id?: string | null
+          money_release_date?: string | null
+          money_release_status?: string | null
+          mp_payment_id?: string
+          net_received_amount?: number | null
+          order_db_id?: string | null
+          payment_method_id?: string | null
+          payment_method_type?: string | null
+          shipping_fee_amount?: number | null
+          status?: string | null
+          store_id?: string
+          taxes_amount?: number | null
+          transaction_amount?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_releases_order_db_id_fkey"
+            columns: ["order_db_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_releases_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           cost_price: number | null
@@ -167,6 +260,8 @@ export type Database = {
           id: string
           ml_item_id: string
           sku: string | null
+          stock: number
+          stock_updated_at: string | null
           store_id: string
           thumbnail: string | null
           title: string
@@ -179,6 +274,8 @@ export type Database = {
           id?: string
           ml_item_id: string
           sku?: string | null
+          stock?: number
+          stock_updated_at?: string | null
           store_id: string
           thumbnail?: string | null
           title: string
@@ -191,6 +288,8 @@ export type Database = {
           id?: string
           ml_item_id?: string
           sku?: string | null
+          stock?: number
+          stock_updated_at?: string | null
           store_id?: string
           thumbnail?: string | null
           title?: string
@@ -233,6 +332,110 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      purchase_items: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          product_id: string | null
+          purchase_id: string
+          quantity: number
+          unit_cost: number
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          product_id?: string | null
+          purchase_id: string
+          quantity?: number
+          unit_cost: number
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          product_id?: string | null
+          purchase_id?: string
+          quantity?: number
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_items_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      purchases: {
+        Row: {
+          created_at: string
+          description: string | null
+          due_date: string
+          id: string
+          invoice_number: string | null
+          notes: string | null
+          paid_date: string | null
+          purchase_date: string
+          status: string
+          store_id: string
+          supplier: string
+          total_amount: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          due_date: string
+          id?: string
+          invoice_number?: string | null
+          notes?: string | null
+          paid_date?: string | null
+          purchase_date: string
+          status?: string
+          store_id: string
+          supplier: string
+          total_amount: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          due_date?: string
+          id?: string
+          invoice_number?: string | null
+          notes?: string | null
+          paid_date?: string | null
+          purchase_date?: string
+          status?: string
+          store_id?: string
+          supplier?: string
+          total_amount?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchases_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       stores: {
         Row: {
