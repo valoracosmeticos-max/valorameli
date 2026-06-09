@@ -44,9 +44,9 @@ export const ContasReceberTable = ({ releases }: Props) => {
             <TableHeader>
               <TableRow>
                 <TableHead>Pedido ML</TableHead>
+                <TableHead>Data do pedido</TableHead>
                 <TableHead>Data liberação</TableHead>
                 <TableHead>Dias restantes</TableHead>
-                <TableHead>Parcelas</TableHead>
                 <TableHead className="text-right">Valor líquido</TableHead>
               </TableRow>
             </TableHeader>
@@ -58,7 +58,10 @@ export const ContasReceberTable = ({ releases }: Props) => {
                     <TableCell className="font-mono text-xs">
                       {r.ml_order_id ?? <span className="text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell>{fmtDt(r.money_release_date)}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {r.date_approved ? fmtDt(r.date_approved) : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{fmtDt(r.money_release_date)}</TableCell>
                     <TableCell>
                       <Badge
                         variant={
@@ -70,7 +73,6 @@ export const ContasReceberTable = ({ releases }: Props) => {
                         {daysLeft === 0 ? "Hoje" : `${daysLeft}d`}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-center">{r.installments ?? 1}x</TableCell>
                     <TableCell className="text-right font-mono">
                       {fmtR(r.net_received_amount ?? 0)}
                     </TableCell>
