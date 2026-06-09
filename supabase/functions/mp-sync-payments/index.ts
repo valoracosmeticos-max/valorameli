@@ -5,7 +5,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const MP_API = "https://api.mercadopago.com";
+const MP_API  = "https://api.mercadopago.com";
+const ML_API  = "https://api.mercadolibre.com";
+
+// Reutiliza o mesmo padrão do ml-sync-orders: renova o token se expirado/próximo de expirar
+async function refreshIfNeeded(admin: any, store: any): Promise<string> {
+  const expiresAt = store.token_expires_at ? new Date(store.token_expires_at).getTime() : 0;
+  if (expiresAt > Date.now() + 5 * 60 * 1000 && store.access_token) return store.access_token;
+  const params = new URLSearchParams({
+    grant_type:    "refresh_token",
+    client_id:     Deno.env.get("ML_CLIENT_ID")!,
+    client_secret: Deno.env.get("ML_CLIENT_SECRET")!,
+    refresh_token: store.refresh_token,
+  });
+  const r = await fetch(`${ML_API}/oauth/token`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body:    params.toString(),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(`Refresh token failed: ${JSON.stringify(j)}`);
+  const newExpires = new Date(Date.now() + (j.expires_in ?? 21600) * 1000).toISOString();
+  await admin.from("stores").update({
+    access_token:     j.access_token,
+    refresh_token:    j.refresh_token,
+    token_expires_at: newExpires,
+  }).eq("id", store.id);
+  return j.access_token;
+}
 
 async function mpGet(url: string, token: string): Promise<any> {
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -50,7 +77,7 @@ Deno.serve(async (req) => {
     // Buscar lojas do usuário
     let storeQuery = admin
       .from("stores")
-      .select("id, access_token, ml_seller_id, name")
+      .select("id, access_token, refresh_token, token_expires_at, ml_seller_id, name")
       .eq("user_id", userId);
     if (storeId) storeQuery = storeQuery.eq("id", storeId);
     const { data: stores, error: stErr } = await storeQuery;
@@ -64,9 +91,16 @@ Deno.serve(async (req) => {
     const summary: any[] = [];
 
     for (const store of stores) {
-      const token = store.access_token;
-      if (!token) {
+      if (!store.access_token) {
         summary.push({ store_id: store.id, store_name: store.name, error: "Sem token" });
+        continue;
+      }
+
+      let token: string;
+      try {
+        token = await refreshIfNeeded(admin, store);
+      } catch (e) {
+        summary.push({ store_id: store.id, store_name: store.name, error: `Refresh falhou: ${String(e).slice(0, 200)}` });
         continue;
       }
 
