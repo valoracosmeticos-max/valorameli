@@ -204,9 +204,10 @@ Deno.serve(async (req) => {
           // Se envio próprio: shippingCost = 0, netReceived = paymentNet intacto.
           const netReceived = Math.max(0, paymentNet - shippingCost);
 
-          const buyerNickname = o.buyer?.nickname ?? null;
-          const buyerName = buyerNickname
-            ?? [o.buyer?.first_name, o.buyer?.last_name].filter(Boolean).join(" ") || null;
+          const buyerName =
+            o.buyer?.nickname ||
+            [o.buyer?.first_name, o.buyer?.last_name].filter(Boolean).join(" ") ||
+            null;
 
           const orderRow = {
             user_id: userId,
