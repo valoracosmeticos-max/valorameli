@@ -110,6 +110,7 @@ export type Database = {
       orders: {
         Row: {
           amount_received: number | null
+          buyer_name: string | null
           created_at: string
           date_created: string
           id: string
@@ -124,6 +125,7 @@ export type Database = {
         }
         Insert: {
           amount_received?: number | null
+          buyer_name?: string | null
           created_at?: string
           date_created: string
           id?: string
@@ -138,6 +140,7 @@ export type Database = {
         }
         Update: {
           amount_received?: number | null
+          buyer_name?: string | null
           created_at?: string
           date_created?: string
           id?: string
