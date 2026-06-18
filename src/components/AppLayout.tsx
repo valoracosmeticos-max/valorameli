@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ShoppingCart, Package, Settings, LogOut, TrendingUp, Wallet, BarChart3, ShoppingBag } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Package, Settings, LogOut, TrendingUp, Wallet, BarChart3, ShoppingBag, Truck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ const nav = [
   { to: "/custos-adicionais", label: "Custos Adicionais", icon: Wallet },
   { to: "/fluxo-caixa", label: "Fluxo de Caixa", icon: BarChart3 },
   { to: "/compras", label: "Compras", icon: ShoppingBag },
+  { to: "/despacho", label: "Despacho", icon: Truck },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
