@@ -13,6 +13,7 @@ import SetupLojas from "./pages/SetupLojas";
 import CustosAdicionais from "./pages/CustosAdicionais";
 import FluxoCaixa from "./pages/FluxoCaixa";
 import Compras from "./pages/Compras";
+import Despacho from "./pages/Despacho";
 import Auth from "./pages/Auth";
 import MLCallback from "./pages/MLCallback";
 import NotFound from "./pages/NotFound";
