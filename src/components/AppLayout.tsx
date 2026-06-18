@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ShoppingCart, Package, Settings, LogOut, TrendingUp, Wallet, BarChart3, ShoppingBag } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Package, Settings, LogOut, TrendingUp, Wallet, BarChart3, ShoppingBag, Box } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
