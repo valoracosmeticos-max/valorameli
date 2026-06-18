@@ -11,6 +11,7 @@ const nav = [
   { to: "/custos-adicionais", label: "Custos Adicionais", icon: Wallet },
   { to: "/fluxo-caixa", label: "Fluxo de Caixa", icon: BarChart3 },
   { to: "/compras", label: "Compras", icon: ShoppingBag },
+  { to: "/despacho", label: "Despacho", icon: Box },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
