@@ -164,50 +164,62 @@ Deno.serve(async (req) => {
             paymentNet = grossSales - mlFees;
           }
 
-          // 2. CUSTO DE FRETE via /shipments/{id}/costs — senders[0].cost = custo literal
-          // REGRA: mode ou logistic_type "custom" = envio próprio → frete ZERO, não chamar API
+          // Tenta extrair o que vier na busca inicial
+          let buyerName = o.buyer?.nickname || 
+                          [o.buyer?.first_name, o.buyer?.last_name].filter(Boolean).join(' ');
+
+          // 2. BUSCA DO FRETE (Custo e Endereço da Etiqueta)
           const shippingId = o.shipping?.id;
           const shippingMode = o.shipping?.mode;
           const logisticType = o.shipping?.logistic_type;
 
-          if (shippingId && shippingMode !== "custom" && logisticType !== "custom") {
+          if (shippingId) {
+            // 2.1 CAPTURA DO NOME E ENDEREÇO NA ETIQUETA
             try {
-              const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
-              const sc = costs?.senders;
-
-              if (!shipDiag) {
-                shipDiag = {
-                  order_id: String(o.id),
-                  shipping_mode: shippingMode,
-                  logistic_type: logisticType,
-                  gross_amount: costs?.gross_amount,
-                  senders_is_array: Array.isArray(sc),
-                  senders_0: Array.isArray(sc) ? sc[0] : sc,
-                  receiver: costs?.receiver,
-                };
+              const shipmentData = await mlGet(`${ML_API}/shipments/${shippingId}`, token);
+              const addr = shipmentData?.receiver_address;
+              
+              if (addr) {
+                const rName = addr.receiver_name;
+                const rStreet = addr.address_line;
+                const rCity = addr.city?.name;
+                
+                if (rName && rName.trim() !== '') {
+                  buyerName = rName; // Nome exato impresso na etiqueta
+                } else if (rStreet) {
+                  buyerName = `${rStreet} - ${rCity}`; // Fallback: Endereço da etiqueta
+                }
               }
+            } catch (errAddr) {
+              console.log(`Erro ao buscar etiqueta ${shippingId}:`, errAddr);
+            }
 
-              if (Array.isArray(sc) && sc.length > 0) {
-                shippingCost = Number(sc[0].cost ?? 0);
-              } else if (sc && typeof sc === "object" && !Array.isArray(sc)) {
-                shippingCost = Number(sc.cost ?? 0);
+            // 2.2 CÁLCULO DE CUSTO (Blindado contra envios customizados)
+            if (shippingMode !== 'custom' && logisticType !== 'custom') {
+              try {
+                const costs = await mlGet(`${ML_API}/shipments/${shippingId}/costs`, token);
+                const sc = costs?.senders;
+                
+                if (Array.isArray(sc) && sc.length > 0) {
+                  shippingCost = Number(sc[0].cost ?? 0);
+                } else if (sc && typeof sc === 'object' && !Array.isArray(sc)) {
+                  shippingCost = Number(sc.cost ?? 0);
+                }
+              } catch (e1) {
+                lastShipErr = String(e1).slice(0, 100);
               }
-            } catch (e1) {
-              lastShipErr = String(e1).slice(0, 100);
             }
           }
+
           if (shippingCost > 0) shippingWithCost++;
 
-          // 3. RECEBIDO FINAL
-          // paymentNet = venda bruta - tarifa ML + estornos (via /v1/payments).
-          // Frete debitado separadamente pelo ML → subtraímos aqui.
-          // Se envio próprio: shippingCost = 0, netReceived = paymentNet intacto.
-          const netReceived = Math.max(0, paymentNet - shippingCost);
+          // Fallback final 
+          if (!buyerName || buyerName.trim() === '') {
+            buyerName = 'Endereço/Nome restrito pelo ML';
+          }
 
-          const buyerName =
-            o.buyer?.nickname ||
-            [o.buyer?.first_name, o.buyer?.last_name].filter(Boolean).join(" ") ||
-            null;
+          // 3. CÁLCULO FINAL DO RECEBIDO
+          const netReceived = paymentNet > 0 ? paymentNet : Math.max(0, grossSales - mlFees - shippingCost);
 
           const orderRow = {
             user_id: userId,
@@ -219,7 +231,7 @@ Deno.serve(async (req) => {
             amount_received: netReceived,
             shipping_cost: shippingCost,
             ml_fees: mlFees,
-            buyer_name: buyerName,
+            buyer_name: buyerName, // O nome ou endereço capturado acima
           };
 
           const { data: upOrder, error: upErr } = await admin
