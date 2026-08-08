@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CheckCircle2, Store, Plus, Trash2, ExternalLink, ArrowLeft, KeyRound } from "lucide-react";
+import { CheckCircle2, Store, Plus, Trash2, ExternalLink, ArrowLeft, KeyRound, LogOut } from "lucide-react";
 
 interface ManualForm {
   open: boolean;
@@ -55,6 +55,32 @@ async function generatePkce() {
 }
 
 const STORAGE_KEY = "ml_setup_slots";
+
+// O redirect_uri precisa bater EXATAMENTE com o cadastrado no Dev Center do ML.
+// window.location.origin muda entre localhost / preview / domínio próprio e quebra o match,
+// por isso VITE_ML_REDIRECT_URI deve ser definido em produção.
+const ML_REDIRECT_URI =
+  import.meta.env.VITE_ML_REDIRECT_URI ?? `${window.location.origin}/auth/ml-callback`;
+
+// Contexto do OAuth fica em localStorage indexado pelo state.
+// sessionStorage se perde se o ML abrir o retorno em outra aba/janela.
+const OAUTH_PREFIX = "ml_oauth_";
+const OAUTH_TTL_MS = 30 * 60 * 1000;
+
+const oauthKey = (state: string) => `${OAUTH_PREFIX}${state}`;
+
+const pruneOauthState = () => {
+  const now = Date.now();
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith(OAUTH_PREFIX)) continue;
+    try {
+      const { ts } = JSON.parse(localStorage.getItem(key) ?? "{}");
+      if (!ts || now - ts > OAUTH_TTL_MS) localStorage.removeItem(key);
+    } catch {
+      localStorage.removeItem(key);
+    }
+  }
+};
 
 const SetupLojas = () => {
   const [slots, setSlots] = useState<StoreSlot[]>([]);
@@ -144,26 +170,41 @@ const SetupLojas = () => {
       }
       const clientId = String(cfg.client_id);
       const { verifier, challenge } = await generatePkce();
-      const redirectUri = import.meta.env.VITE_ML_REDIRECT_URI ?? `${window.location.origin}/auth/ml-callback`;
+      const redirectUri = ML_REDIRECT_URI;
 
-      sessionStorage.setItem("ml_pkce_verifier", verifier);
-      sessionStorage.setItem("ml_store_name", name);
-      sessionStorage.setItem("ml_redirect_uri", redirectUri);
-      sessionStorage.setItem("ml_return_to", "/setup-lojas");
+      // O ML exige redirect_uri estático, então o contexto da loja viaja pelo state.
+      const state = crypto.randomUUID();
+      pruneOauthState();
+      localStorage.setItem(
+        oauthKey(state),
+        JSON.stringify({ verifier, name, redirectUri, returnTo: "/setup-lojas", ts: Date.now() }),
+      );
 
+      // Parâmetros suportados pelo ML: response_type, client_id, redirect_uri,
+      // state, code_challenge, code_challenge_method. Não existe "prompt" —
+      // enviar parâmetro não suportado faz o ML responder invalid_request.
       const authUrl =
         `https://auth.mercadolivre.com.br/authorization` +
         `?response_type=code` +
         `&client_id=${encodeURIComponent(clientId)}` +
         `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+        `&state=${encodeURIComponent(state)}` +
         `&code_challenge=${encodeURIComponent(challenge)}` +
         `&code_challenge_method=S256`;
 
-      window.location.href = authUrl + `&prompt=login`;
+      window.location.href = authUrl;
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao iniciar OAuth");
       setConnectingName(null);
     }
+  };
+
+  // O ML não aceita forçar re-login pela URL de autorização. Para conectar uma
+  // segunda loja é preciso sair da conta atual antes de autorizar a próxima.
+  const switchMlAccount = () => {
+    const back = `${window.location.origin}/setup-lojas`;
+    window.location.href =
+      `https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=${encodeURIComponent(back)}`;
   };
 
   const toggleManual = (idx: number) => {
@@ -227,8 +268,25 @@ const SetupLojas = () => {
           Adicione cada loja que você possui no Mercado Livre e clique em "Conectar" para autorizar.
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          Ao clicar em Conectar, você será redirecionado ao Mercado Livre. Faça login com a conta da loja que deseja adicionar — mesmo que já esteja logado, o ML pedirá as credenciais novamente.
+          Ao clicar em Conectar, você será redirecionado ao Mercado Livre e a autorização será
+          concedida para a conta que estiver logada no navegador. Para adicionar uma loja diferente,
+          saia da conta atual antes.
         </p>
+        <div className="mt-3 rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+          <p className="text-xs font-medium">Para conectar outra loja</p>
+          <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-0.5">
+            <li>Clique em "Sair da conta do Mercado Livre" abaixo.</li>
+            <li>Volte aqui, informe o nome da nova loja e clique em "Conectar Loja".</li>
+            <li>Faça login com a conta <strong>administradora principal</strong> dessa loja.</li>
+          </ol>
+          <p className="text-xs text-muted-foreground">
+            Contas de <strong>colaborador/operador</strong> não conseguem autorizar aplicativos — o
+            Mercado Livre recusa com "não foi possível conectar o aplicativo à sua conta".
+          </p>
+          <Button variant="outline" size="sm" onClick={switchMlAccount} disabled={connectingName !== null}>
+            <LogOut className="h-3.5 w-3.5 mr-1.5" />Sair da conta do Mercado Livre
+          </Button>
+        </div>
       </div>
 
       <Card className="shadow-soft border-border/60">

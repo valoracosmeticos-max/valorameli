@@ -123,10 +123,23 @@ Deno.serve(async (req) => {
     // Upsert by (user_id, ml_seller_id)
     const { data: existing } = await admin
       .from("stores")
-      .select("id")
+      .select("id, name")
       .eq("user_id", userId)
       .eq("ml_seller_id", sellerId)
       .maybeSingle();
+
+    // Mesma conta ML autorizada sob outro nome = o usuário não trocou de conta no
+    // navegador. Recusa antes de gravar, senão a loja existente seria renomeada.
+    if (existing && existing.name !== body.store_name) {
+      return new Response(
+        JSON.stringify({
+          error:
+            `Esta conta do Mercado Livre (${nickname ?? sellerId}) já está conectada como "${existing.name}". ` +
+            `Para adicionar outra loja, saia da conta do Mercado Livre no navegador e entre com a conta administradora da loja que deseja conectar.`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     if (existing) {
       await admin

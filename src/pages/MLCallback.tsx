@@ -19,9 +19,16 @@ const MLCallback = () => {
 
     const code = params.get("code");
     const err = params.get("error");
+    const state = params.get("state");
+
     if (err) {
+      const desc = params.get("error_description");
       setStatus("error");
-      setMessage(`Autorização recusada: ${err}`);
+      setMessage(
+        err === "invalid_operator_user_id"
+          ? "Essa conta é um colaborador/operador do Mercado Livre. Só a conta administradora principal da loja pode autorizar o aplicativo."
+          : `Autorização recusada pelo Mercado Livre: ${err}${desc ? ` — ${desc}` : ""}`,
+      );
       return;
     }
     if (!code) {
@@ -30,15 +37,30 @@ const MLCallback = () => {
       return;
     }
 
-    const verifier = sessionStorage.getItem("ml_pkce_verifier");
-    const storeName = sessionStorage.getItem("ml_store_name");
-    const redirectUri = sessionStorage.getItem("ml_redirect_uri");
-    const rt = sessionStorage.getItem("ml_return_to") || "/configuracoes";
+    // O contexto vai em localStorage indexado pelo state — sessionStorage se perde
+    // quando o ML devolve o retorno em outra aba. Fallback mantém compatibilidade
+    // com autorizações iniciadas antes desta mudança.
+    let ctx: { verifier?: string; name?: string; redirectUri?: string; returnTo?: string } = {};
+    if (state) {
+      try {
+        ctx = JSON.parse(localStorage.getItem(`ml_oauth_${state}`) ?? "{}");
+      } catch {
+        ctx = {};
+      }
+      localStorage.removeItem(`ml_oauth_${state}`);
+    }
+
+    const verifier = ctx.verifier ?? sessionStorage.getItem("ml_pkce_verifier");
+    const storeName = ctx.name ?? sessionStorage.getItem("ml_store_name");
+    const redirectUri = ctx.redirectUri ?? sessionStorage.getItem("ml_redirect_uri");
+    const rt = ctx.returnTo ?? sessionStorage.getItem("ml_return_to") ?? "/configuracoes";
     setReturnTo(rt);
 
     if (!verifier || !storeName || !redirectUri) {
       setStatus("error");
-      setMessage("Sessão de autorização expirou. Tente conectar novamente.");
+      setMessage(
+        "Não foi possível recuperar os dados desta autorização. Isso acontece se a aba foi fechada ou se passou muito tempo. Volte e clique em Conectar novamente.",
+      );
       return;
     }
 
@@ -57,30 +79,8 @@ const MLCallback = () => {
           return;
         }
 
-        // Detect "same ML account reconnected with a different name" case
-        const sellerId = data.seller_id ? String(data.seller_id) : null;
-        if (sellerId) {
-          const { data: matches } = await supabase
-            .from("stores")
-            .select("name, ml_seller_id")
-            .eq("ml_seller_id", sellerId);
-          const other = matches?.find((m: any) => m.name !== storeName);
-          if (other && matches && matches.length === 1) {
-            // Only one row exists for this seller and its name was just overwritten by our upsert.
-            // That means the user authorized the SAME ML account they had before, just renamed it.
-            // Heuristic: if the new name differs from typical "rename intent", warn them.
-            // We can't perfectly tell, so we only warn when the seller already had a store with a different name.
-          }
-          if (other) {
-            setStatus("error");
-            setMessage(
-              `Você autorizou a mesma conta ML que já está conectada como "${other.name}". ` +
-              `Para conectar outra loja, faça logout do Mercado Livre no navegador e tente novamente entrando com a conta correta.`,
-            );
-            return;
-          }
-        }
-
+        // O caso "mesma conta ML autorizada com outro nome" é recusado pela
+        // edge function antes de gravar e chega aqui como data.error.
         setStatus("success");
         setMessage(`Loja conectada com sucesso${data.nickname ? ` (${data.nickname})` : ""}!`);
         setTimeout(() => nav(rt, { replace: true }), 1500);
