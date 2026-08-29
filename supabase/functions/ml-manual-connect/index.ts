@@ -59,18 +59,15 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (!accessToken.startsWith("APP_USR-") || accessToken.length < 50) {
-      return new Response(JSON.stringify({ error: "Access Token tem formato inválido (deve começar com APP_USR-)." }), {
+    // Não impomos prefixo (APP_USR- / TG-): o Dev Center do ML às vezes mostra
+    // tokens em formatos diferentes. Quem decide se o token vale é o /users/me.
+    if (accessToken.length < 10) {
+      return new Response(JSON.stringify({ error: "Access Token muito curto — copie o valor completo." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (!refreshToken.startsWith("TG-")) {
-      return new Response(JSON.stringify({ error: "Refresh Token tem formato inválido (deve começar com TG-)." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+
 
     const meResp = await fetch("https://api.mercadolibre.com/users/me", {
       headers: { Authorization: `Bearer ${accessToken}` },
