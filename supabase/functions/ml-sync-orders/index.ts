@@ -241,7 +241,8 @@ Deno.serve(async (req) => {
             .single();
           if (upErr) {
             summary.push({ store: store.name, error: upErr.message, ml_order_id: o.id });
-            continue;
+            return;
+
           }
 
           await admin.from("order_items").delete().eq("order_id", upOrder.id);
