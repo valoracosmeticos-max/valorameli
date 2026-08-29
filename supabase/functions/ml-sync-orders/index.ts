@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
         const results: any[] = page.results ?? [];
         if (results.length === 0) break;
 
-        for (const o of results) {
+        const processOrder = async (o: any) => {
           const grossSales = Number(o.total_amount ?? 0);
 
           let mlFees = 0;
