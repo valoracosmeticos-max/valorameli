@@ -243,13 +243,26 @@ const SetupLojas = () => {
           refresh_token: m.refresh_token.trim(),
         },
       });
-      if (error) throw new Error(error.message);
+      // Em erro HTTP a supabase-js não expõe o corpo em `data`; é preciso ler
+      // o Response de error.context, senão só sobra "non-2xx status code".
+      if (error) {
+        let detail = error.message;
+        const ctx = (error as any).context;
+        if (ctx && typeof ctx.json === "function") {
+          try {
+            const j = await ctx.json();
+            if (j?.error) detail = j.error;
+          } catch { /* corpo não-JSON */ }
+        }
+        throw new Error(detail);
+      }
       if (!data?.success) throw new Error(data?.error ?? "Falha ao validar tokens.");
       toast.success("Loja conectada manualmente");
       await loadFromDb();
     } catch (e: any) {
       updateManual(idx, { saving: false, error: e?.message ?? "Erro inesperado." });
     }
+
   };
 
   const allConnected = slots.length > 0 && slots.every((s) => s.status === "connected");
