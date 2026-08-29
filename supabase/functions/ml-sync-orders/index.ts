@@ -83,6 +83,9 @@ Deno.serve(async (req) => {
 
     const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
     const summary: any[] = [];
+    const startedAt = Date.now();
+    const TIME_BUDGET_MS = 110_000;
+
 
     for (const store of stores) {
       let token: string;
@@ -121,7 +124,7 @@ Deno.serve(async (req) => {
         const results: any[] = page.results ?? [];
         if (results.length === 0) break;
 
-        for (const o of results) {
+        const processOrder = async (o: any) => {
           const grossSales = Number(o.total_amount ?? 0);
 
           let mlFees = 0;
@@ -241,7 +244,8 @@ Deno.serve(async (req) => {
             .single();
           if (upErr) {
             summary.push({ store: store.name, error: upErr.message, ml_order_id: o.id });
-            continue;
+            return;
+
           }
 
           await admin.from("order_items").delete().eq("order_id", upOrder.id);
@@ -315,12 +319,26 @@ Deno.serve(async (req) => {
           }
 
           fetched++;
+        };
+
+        // Processa em paralelo (lotes) para não estourar o tempo da função
+        const CONCURRENCY = 6;
+        for (let i = 0; i < results.length; i += CONCURRENCY) {
+          await Promise.all(results.slice(i, i + CONCURRENCY).map((o) => processOrder(o).catch((e) => {
+            summary.push({ store: store.name, error: String(e).slice(0, 200), ml_order_id: o?.id });
+          })));
+          if (Date.now() - startedAt > TIME_BUDGET_MS) break;
         }
 
         offset += results.length;
+        if (Date.now() - startedAt > TIME_BUDGET_MS) {
+          summary.push({ store: store.name, partial: true, note: "Tempo limite atingido — rode a sincronização novamente para continuar." });
+          break;
+        }
         if (offset >= total) break;
         if (offset > 5000) break;
       }
+
 
       await admin.from("stores").update({ last_sync_at: new Date().toISOString() }).eq("id", store.id);
       summary.push({ store: store.name, fetched, total, shippingWithCost, ...(lastShipErr ? { lastShipErr } : {}), ...(shipDiag ? { shipDiag } : {}) });
