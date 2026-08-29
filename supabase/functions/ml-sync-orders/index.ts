@@ -315,12 +315,26 @@ Deno.serve(async (req) => {
           }
 
           fetched++;
+        };
+
+        // Processa em paralelo (lotes) para não estourar o tempo da função
+        const CONCURRENCY = 6;
+        for (let i = 0; i < results.length; i += CONCURRENCY) {
+          await Promise.all(results.slice(i, i + CONCURRENCY).map((o) => processOrder(o).catch((e) => {
+            summary.push({ store: store.name, error: String(e).slice(0, 200), ml_order_id: o?.id });
+          })));
+          if (Date.now() - startedAt > TIME_BUDGET_MS) break;
         }
 
         offset += results.length;
+        if (Date.now() - startedAt > TIME_BUDGET_MS) {
+          summary.push({ store: store.name, partial: true, note: "Tempo limite atingido — rode a sincronização novamente para continuar." });
+          break;
+        }
         if (offset >= total) break;
         if (offset > 5000) break;
       }
+
 
       await admin.from("stores").update({ last_sync_at: new Date().toISOString() }).eq("id", store.id);
       summary.push({ store: store.name, fetched, total, shippingWithCost, ...(lastShipErr ? { lastShipErr } : {}), ...(shipDiag ? { shipDiag } : {}) });
