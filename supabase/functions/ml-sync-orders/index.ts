@@ -83,6 +83,9 @@ Deno.serve(async (req) => {
 
     const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
     const summary: any[] = [];
+    const startedAt = Date.now();
+    const TIME_BUDGET_MS = 110_000;
+
 
     for (const store of stores) {
       let token: string;
