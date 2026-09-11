@@ -7,6 +7,11 @@ const corsHeaders = {
 
 const ML_API = "https://api.mercadolibre.com";
 
+// O refresh_token do ML é de uso único. Sincronizar, Pagamentos MP e o botão
+// de renovar podem disparar refresh quase ao mesmo tempo para a mesma loja —
+// quem perde essa corrida recebe invalid_grant mesmo que o outro tenha
+// funcionado. Antes de desistir, relê a loja: se alguém já rotacionou o
+// token nesse meio-tempo, usa o resultado dele em vez de falhar à toa.
 async function refreshIfNeeded(admin: any, store: any) {
   const expiresAt = store.token_expires_at ? new Date(store.token_expires_at).getTime() : 0;
   if (expiresAt > Date.now() + 5 * 60 * 1000 && store.access_token) return store.access_token;
@@ -22,7 +27,18 @@ async function refreshIfNeeded(admin: any, store: any) {
     body: params.toString(),
   });
   const j = await r.json();
-  if (!r.ok) throw new Error(`Refresh failed: ${JSON.stringify(j)}`);
+  if (!r.ok) {
+    const { data: fresh } = await admin
+      .from("stores")
+      .select("access_token, refresh_token, token_expires_at")
+      .eq("id", store.id)
+      .maybeSingle();
+    const freshExpires = fresh?.token_expires_at ? new Date(fresh.token_expires_at).getTime() : 0;
+    if (fresh && fresh.refresh_token !== store.refresh_token && freshExpires > Date.now()) {
+      return fresh.access_token;
+    }
+    throw new Error(`Refresh failed: ${JSON.stringify(j)}`);
+  }
   const newExpires = new Date(Date.now() + (j.expires_in ?? 21600) * 1000).toISOString();
   await admin.from("stores").update({
     access_token: j.access_token,

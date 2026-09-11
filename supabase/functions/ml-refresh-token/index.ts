@@ -66,6 +66,21 @@ Deno.serve(async (req) => {
     });
     const json = await resp.json();
     if (!resp.ok) {
+      // refresh_token do ML é de uso único. Se Sincronizar ou Pagamentos MP
+      // já rotacionaram o token nesse meio-tempo, este pedido perde a corrida
+      // e recebe invalid_grant mesmo que o outro tenha funcionado — relê a
+      // loja antes de reportar falha.
+      const { data: fresh } = await admin
+        .from("stores")
+        .select("access_token, refresh_token, token_expires_at")
+        .eq("id", store.id)
+        .maybeSingle();
+      const freshExpires = fresh?.token_expires_at ? new Date(fresh.token_expires_at).getTime() : 0;
+      if (fresh && fresh.refresh_token !== store.refresh_token && freshExpires > Date.now()) {
+        return new Response(JSON.stringify({ success: true, expires_at: fresh.token_expires_at }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       console.error("Refresh failed", json);
       return new Response(JSON.stringify({ error: "Refresh failed", details: json }), {
         status: 400,
