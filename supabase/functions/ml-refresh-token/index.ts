@@ -81,11 +81,35 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      // Se o refresh token já foi usado/expirou, o access token atual ainda pode
+      // estar válido — testa antes de exigir reconexão.
+      if (fresh?.access_token) {
+        const probe = await fetch("https://api.mercadolibre.com/users/me", {
+          headers: { Authorization: `Bearer ${fresh.access_token}` },
+        });
+        if (probe.ok) {
+          return new Response(
+            JSON.stringify({ success: true, expires_at: fresh.token_expires_at ?? null }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+      }
+
       console.error("Refresh failed", json);
-      return new Response(JSON.stringify({ error: "Refresh failed", details: json }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      const invalidGrant = json?.error === "invalid_grant";
+      return new Response(
+        JSON.stringify({
+          error: invalidGrant ? "reconnect_required" : "Refresh failed",
+          message: invalidGrant
+            ? "A autorização desta loja expirou ou já foi usada. Reconecte a loja em Setup de Lojas."
+            : "Não foi possível renovar o token do Mercado Livre.",
+          details: json,
+        }),
+        {
+          status: invalidGrant ? 409 : 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const expiresAt = new Date(Date.now() + (json.expires_in ?? 21600) * 1000).toISOString();

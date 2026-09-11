@@ -45,7 +45,15 @@ const Configuracoes = () => {
     });
     setRefreshingId(null);
     if (error) {
-      toast.error("Falha ao renovar token. Reconecte a loja em Setup de Lojas.");
+      let msg = "Falha ao renovar token. Reconecte a loja em Setup de Lojas.";
+      const ctx = (error as any).context;
+      if (ctx && typeof ctx.json === "function") {
+        try {
+          const j = await ctx.json();
+          if (j?.message) msg = j.message;
+        } catch { /* corpo não-JSON */ }
+      }
+      toast.error(msg);
       return;
     }
     toast.success("Token renovado");
