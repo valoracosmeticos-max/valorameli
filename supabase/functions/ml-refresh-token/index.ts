@@ -5,6 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// O access_token do ML carrega o aplicativo que o emitiu: APP_USR-<app_id>-<...>.
+// Um refresh_token só é aceito pelo client_id que o gerou.
+function appIdFromAccessToken(token: string | null): string | null {
+  if (!token) return null;
+  const m = /^APP_USR-(\d+)-/.exec(token);
+  return m ? m[1] : null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -42,7 +50,7 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey);
     const { data: store, error } = await admin
       .from("stores")
-      .select("id, refresh_token, user_id")
+      .select("id, refresh_token, access_token, user_id")
       .eq("id", store_id)
       .eq("user_id", userData.user.id)
       .maybeSingle();
@@ -97,12 +105,21 @@ Deno.serve(async (req) => {
 
       console.error("Refresh failed", json);
       const invalidGrant = json?.error === "invalid_grant";
+      const clientId = Deno.env.get("ML_CLIENT_ID")!;
+      const tokenAppId = appIdFromAccessToken(fresh?.access_token ?? store.access_token);
+      // Token emitido por outro aplicativo nunca vai renovar, por mais que se
+      // reconecte manualmente — vale apontar isso em vez de pedir reconexão.
+      const wrongApp = tokenAppId !== null && tokenAppId !== clientId;
       return new Response(
         JSON.stringify({
-          error: invalidGrant ? "reconnect_required" : "Refresh failed",
-          message: invalidGrant
-            ? "A autorização desta loja expirou ou já foi usada. Reconecte a loja em Setup de Lojas."
-            : "Não foi possível renovar o token do Mercado Livre.",
+          error: wrongApp ? "wrong_app" : invalidGrant ? "reconnect_required" : "Refresh failed",
+          message: wrongApp
+            ? `Os tokens desta loja foram emitidos pelo aplicativo ${tokenAppId}, mas o sistema usa o ${clientId}. ` +
+              `Só o aplicativo que gerou o refresh_token consegue renová-lo — por isso a loja conecta e para de renovar depois. ` +
+              `Gere os tokens pelo aplicativo ${clientId} ou conecte via OAuth.`
+            : invalidGrant
+              ? "A autorização desta loja expirou ou já foi usada. Reconecte a loja em Setup de Lojas."
+              : "Não foi possível renovar o token do Mercado Livre.",
           details: json,
         }),
         {

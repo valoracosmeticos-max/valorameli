@@ -13,6 +13,14 @@ interface Body {
   app_id?: string;
 }
 
+// O access_token do ML carrega o aplicativo que o emitiu: APP_USR-<app_id>-<...>.
+// Um refresh_token só é aceito pelo client_id que o gerou, então tokens de outro
+// aplicativo passam no /users/me mas nunca conseguem renovar.
+function appIdFromAccessToken(token: string): string | null {
+  const m = /^APP_USR-(\d+)-/.exec(token);
+  return m ? m[1] : null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -69,8 +77,66 @@ Deno.serve(async (req) => {
     }
 
 
+    const clientId = Deno.env.get("ML_CLIENT_ID")!;
+    const clientSecret = Deno.env.get("ML_CLIENT_SECRET")!;
+
+    // Tokens de outro aplicativo conectam mas nunca renovam — barra antes de salvar.
+    const tokenAppId = appIdFromAccessToken(accessToken);
+    if (tokenAppId && tokenAppId !== clientId) {
+      return new Response(
+        JSON.stringify({
+          error:
+            `Estes tokens foram emitidos pelo aplicativo ${tokenAppId}, mas o sistema usa o aplicativo ${clientId}. ` +
+            `Um refresh_token só é aceito pelo aplicativo que o gerou, então a loja conectaria agora e pararia de renovar em 6 horas. ` +
+            `Gere os tokens pelo aplicativo ${clientId} ou conecte a loja via OAuth.`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Troca o refresh_token ANTES de salvar: é a única prova de que a loja vai
+    // conseguir renovar sozinha. Sem isso ela conecta e só quebra 6h depois,
+    // quando o access_token expira. Como o refresh_token do ML é de uso único,
+    // guardamos o par novo devolvido pela troca, não o que o usuário colou.
+    const refreshResp = await fetch("https://api.mercadolibre.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+      }).toString(),
+    });
+    const refreshJson = await refreshResp.json();
+
+    if (!refreshResp.ok) {
+      console.error("ML refresh test failed:", refreshResp.status, refreshJson);
+      const probe = await fetch("https://api.mercadolibre.com/users/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const accessOk = probe.ok;
+      return new Response(
+        JSON.stringify({
+          error:
+            (accessOk
+              ? "O Access Token é válido, mas o Refresh Token foi recusado pelo Mercado Livre"
+              : "Access Token e Refresh Token foram recusados pelo Mercado Livre") +
+            ` (${refreshJson?.error ?? refreshResp.status}). Salvar assim faria a loja parar de sincronizar em 6 horas. ` +
+            `O ML retorna esse erro quando o refresh_token já foi usado (é de uso único), quando ele pertence a outro aplicativo, ` +
+            `ou quando a conta do vendedor tem dados/documentos pendentes de validação no Mercado Livre.`,
+          details: refreshJson,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const freshAccessToken: string = refreshJson.access_token ?? accessToken;
+    const freshRefreshToken: string = refreshJson.refresh_token ?? refreshToken;
+    const expiresAt = new Date(Date.now() + (refreshJson.expires_in ?? 21600) * 1000).toISOString();
+
     const meResp = await fetch("https://api.mercadolibre.com/users/me", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${freshAccessToken}` },
     });
     if (!meResp.ok) {
       const txt = await meResp.text();
@@ -91,8 +157,6 @@ Deno.serve(async (req) => {
     }
 
     const nickname: string | null = me.nickname ?? null;
-    // Manual tokens: assume 6h validity from now
-    const expiresAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
     const admin = createClient(supabaseUrl, serviceKey);
 
     const { data: existing } = await admin
@@ -107,8 +171,8 @@ Deno.serve(async (req) => {
         .from("stores")
         .update({
           name: storeName,
-          access_token: accessToken,
-          refresh_token: refreshToken,
+          access_token: freshAccessToken,
+          refresh_token: freshRefreshToken,
           token_expires_at: expiresAt,
           ml_nickname: nickname,
         })
@@ -119,8 +183,8 @@ Deno.serve(async (req) => {
         name: storeName,
         ml_seller_id: sellerId,
         ml_nickname: nickname,
-        access_token: accessToken,
-        refresh_token: refreshToken,
+        access_token: freshAccessToken,
+        refresh_token: freshRefreshToken,
         token_expires_at: expiresAt,
       });
     }
