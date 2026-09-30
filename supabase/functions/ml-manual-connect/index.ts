@@ -77,20 +77,20 @@ Deno.serve(async (req) => {
           ? "Preencha também o Client Secret do aplicativo da loja (Dev Center do Mercado Livre)."
           : "Preencha também o Client ID do aplicativo da loja.",
       }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (!storeName || !sellerId || !refreshToken) {
       return new Response(JSON.stringify({ error: "Campos obrigatórios faltando." }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     if (!/^\d{6,12}$/.test(sellerId)) {
       return new Response(JSON.stringify({ error: `Seller ID inválido (${sellerId}).` }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
     // tokens em formatos diferentes. Quem decide se o token vale é o /users/me.
     if (accessToken && accessToken.length < 10) {
       return new Response(JSON.stringify({ error: "Access Token muito curto — copie o valor completo." }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
             `Um refresh_token só é aceito pelo aplicativo que o gerou, então a loja conectaria agora e pararia de renovar em 6 horas. ` +
             `Gere os tokens pelo aplicativo ${clientId} ou conecte a loja via OAuth.`,
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
             `ou quando a conta do vendedor tem dados/documentos pendentes de validação no Mercado Livre.`,
           details: refreshJson,
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
             `Sem ele o Mercado Livre não permite renovação automática e a loja pararia de sincronizar em 6 horas. ` +
             `Conecte a loja via OAuth em Setup de Lojas, que pede o escopo correto.`,
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -188,14 +188,14 @@ Deno.serve(async (req) => {
         JSON.stringify({
           error: `Não foi possível validar o token (HTTP ${meResp.status}). Verifique se o Access Token é válido e não expirou.`,
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
     const me = await meResp.json();
     if (String(me.id) !== sellerId) {
       return new Response(
         JSON.stringify({ error: `O Seller ID informado (${sellerId}) não bate com o dono do token (${me.id}).` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
