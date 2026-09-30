@@ -17,8 +17,8 @@ async function refreshIfNeeded(admin: any, store: any) {
   if (expiresAt > Date.now() + 5 * 60 * 1000 && store.access_token) return store.access_token;
   const params = new URLSearchParams({
     grant_type: "refresh_token",
-    client_id: Deno.env.get("ML_CLIENT_ID")!,
-    client_secret: Deno.env.get("ML_CLIENT_SECRET")!,
+    client_id: store.ml_client_id || Deno.env.get("ML_CLIENT_ID")!,
+    client_secret: store.ml_client_secret || Deno.env.get("ML_CLIENT_SECRET")!,
     refresh_token: store.refresh_token,
   });
   const r = await fetch(`${ML_API}/oauth/token`, {
