@@ -57,10 +57,26 @@ Deno.serve(async (req) => {
     const accessToken = (body.access_token ?? "").trim();
     const refreshToken = (body.refresh_token ?? "").trim();
 
-    const customClientId = String(body.client_id ?? "").trim();
-    const customClientSecret = String(body.client_secret ?? "").trim();
+    let customClientId = String(body.client_id ?? "").trim();
+    let customClientSecret = String(body.client_secret ?? "").trim();
+    // O campo "Id do aplicativo" também identifica o app; usa como Client ID.
+    if (!customClientId && customClientSecret && body.app_id) customClientId = String(body.app_id).trim();
+    // Client ID igual ao app do sistema dispensa secret próprio.
+    if (customClientId === Deno.env.get("ML_CLIENT_ID")) { customClientId = ""; customClientSecret = ""; }
+    // Só o Client ID: reaproveita o secret já salvo para essa loja/app.
+    if (customClientId && !customClientSecret) {
+      const { data: prev } = await createClient(supabaseUrl, serviceKey)
+        .from("stores").select("ml_client_secret")
+        .eq("user_id", userId).eq("ml_seller_id", sellerId).eq("ml_client_id", customClientId)
+        .maybeSingle();
+      customClientSecret = prev?.ml_client_secret ?? "";
+    }
     if ((customClientId && !customClientSecret) || (!customClientId && customClientSecret)) {
-      return new Response(JSON.stringify({ error: "Informe Client ID e Client Secret juntos." }), {
+      return new Response(JSON.stringify({
+        error: customClientId
+          ? "Preencha também o Client Secret do aplicativo da loja (Dev Center do Mercado Livre)."
+          : "Preencha também o Client ID do aplicativo da loja.",
+      }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
