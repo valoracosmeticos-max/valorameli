@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey);
     const { data: store, error } = await admin
       .from("stores")
-      .select("id, refresh_token, access_token, user_id")
+      .select("id, refresh_token, access_token, user_id, ml_client_id, ml_client_secret")
       .eq("id", store_id)
       .eq("user_id", userData.user.id)
       .maybeSingle();
@@ -63,8 +63,8 @@ Deno.serve(async (req) => {
 
     const params = new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: Deno.env.get("ML_CLIENT_ID")!,
-      client_secret: Deno.env.get("ML_CLIENT_SECRET")!,
+      client_id: store.ml_client_id || Deno.env.get("ML_CLIENT_ID")!,
+      client_secret: store.ml_client_secret || Deno.env.get("ML_CLIENT_SECRET")!,
       refresh_token: store.refresh_token,
     });
     const resp = await fetch("https://api.mercadolibre.com/oauth/token", {
@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
 
       console.error("Refresh failed", json);
       const invalidGrant = json?.error === "invalid_grant";
-      const clientId = Deno.env.get("ML_CLIENT_ID")!;
+      const clientId = store.ml_client_id || Deno.env.get("ML_CLIENT_ID")!;
       const tokenAppId = appIdFromAccessToken(fresh?.access_token ?? store.access_token);
       // Token emitido por outro aplicativo nunca vai renovar, por mais que se
       // reconecte manualmente — vale apontar isso em vez de pedir reconexão.
