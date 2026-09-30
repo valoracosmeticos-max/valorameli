@@ -446,6 +446,8 @@ export type Database = {
           created_at: string
           id: string
           last_sync_at: string | null
+          ml_client_id: string | null
+          ml_client_secret: string | null
           ml_nickname: string | null
           ml_seller_id: string | null
           name: string
@@ -459,6 +461,8 @@ export type Database = {
           created_at?: string
           id?: string
           last_sync_at?: string | null
+          ml_client_id?: string | null
+          ml_client_secret?: string | null
           ml_nickname?: string | null
           ml_seller_id?: string | null
           name: string
@@ -472,6 +476,8 @@ export type Database = {
           created_at?: string
           id?: string
           last_sync_at?: string | null
+          ml_client_id?: string | null
+          ml_client_secret?: string | null
           ml_nickname?: string | null
           ml_seller_id?: string | null
           name?: string
