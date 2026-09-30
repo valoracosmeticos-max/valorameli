@@ -11,6 +11,8 @@ interface Body {
   access_token: string;
   refresh_token: string;
   app_id?: string;
+  client_id?: string;
+  client_secret?: string;
 }
 
 // O access_token do ML carrega o aplicativo que o emitiu: APP_USR-<app_id>-<...>.
@@ -55,7 +57,16 @@ Deno.serve(async (req) => {
     const accessToken = (body.access_token ?? "").trim();
     const refreshToken = (body.refresh_token ?? "").trim();
 
-    if (!storeName || !sellerId || !accessToken || !refreshToken) {
+    const customClientId = String(body.client_id ?? "").trim();
+    const customClientSecret = String(body.client_secret ?? "").trim();
+    if ((customClientId && !customClientSecret) || (!customClientId && customClientSecret)) {
+      return new Response(JSON.stringify({ error: "Informe Client ID e Client Secret juntos." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!storeName || !sellerId || !refreshToken) {
       return new Response(JSON.stringify({ error: "Campos obrigatórios faltando." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -69,7 +80,7 @@ Deno.serve(async (req) => {
     }
     // Não impomos prefixo (APP_USR- / TG-): o Dev Center do ML às vezes mostra
     // tokens em formatos diferentes. Quem decide se o token vale é o /users/me.
-    if (accessToken.length < 10) {
+    if (accessToken && accessToken.length < 10) {
       return new Response(JSON.stringify({ error: "Access Token muito curto — copie o valor completo." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -77,8 +88,8 @@ Deno.serve(async (req) => {
     }
 
 
-    const clientId = Deno.env.get("ML_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("ML_CLIENT_SECRET")!;
+    const clientId = customClientId || Deno.env.get("ML_CLIENT_ID")!;
+    const clientSecret = customClientSecret || Deno.env.get("ML_CLIENT_SECRET")!;
 
     // Tokens de outro aplicativo conectam mas nunca renovam — barra antes de salvar.
     const tokenAppId = appIdFromAccessToken(accessToken);
@@ -112,10 +123,10 @@ Deno.serve(async (req) => {
 
     if (!refreshResp.ok) {
       console.error("ML refresh test failed:", refreshResp.status, refreshJson);
-      const probe = await fetch("https://api.mercadolibre.com/users/me", {
+      const probe = accessToken ? await fetch("https://api.mercadolibre.com/users/me", {
         headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const accessOk = probe.ok;
+      }) : null;
+      const accessOk = !!probe?.ok;
       return new Response(
         JSON.stringify({
           error:
@@ -191,6 +202,8 @@ Deno.serve(async (req) => {
           refresh_token: freshRefreshToken,
           token_expires_at: expiresAt,
           ml_nickname: nickname,
+          ml_client_id: customClientId || null,
+          ml_client_secret: customClientSecret || null,
         })
         .eq("id", existing.id);
     } else {
@@ -202,6 +215,8 @@ Deno.serve(async (req) => {
         access_token: freshAccessToken,
         refresh_token: freshRefreshToken,
         token_expires_at: expiresAt,
+        ml_client_id: customClientId || null,
+        ml_client_secret: customClientSecret || null,
       });
     }
 
