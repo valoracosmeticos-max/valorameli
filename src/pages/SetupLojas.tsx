@@ -411,7 +411,7 @@ const SetupLojas = () => {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Client Secret do app da loja (opcional)</Label>
+                      <Label className="text-xs">Client Secret do app da loja (obrigatório se preencher o Client ID)</Label>
                       <Input
                         type="password"
                         value={slot.manual.client_secret}
