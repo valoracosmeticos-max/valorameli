@@ -19,8 +19,8 @@ async function refreshIfNeeded(admin: any, store: any): Promise<string> {
   if (expiresAt > Date.now() + 5 * 60 * 1000 && store.access_token) return store.access_token;
   const params = new URLSearchParams({
     grant_type:    "refresh_token",
-    client_id:     store.ml_client_id || Deno.env.get("ML_CLIENT_ID")!,
-    client_secret: store.ml_client_secret || Deno.env.get("ML_CLIENT_SECRET")!,
+    client_id:     Deno.env.get("ML_CLIENT_ID")!,
+    client_secret: Deno.env.get("ML_CLIENT_SECRET")!,
     refresh_token: store.refresh_token,
   });
   const r = await fetch(`${ML_API}/oauth/token`, {
@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
     // Buscar lojas do usuário
     let storeQuery = admin
       .from("stores")
-      .select("id, access_token, refresh_token, token_expires_at, ml_seller_id, name, ml_client_id, ml_client_secret")
+      .select("id, access_token, refresh_token, token_expires_at, ml_seller_id, name")
       .eq("user_id", userId);
     if (storeId) storeQuery = storeQuery.eq("id", storeId);
     const { data: stores, error: stErr } = await storeQuery;

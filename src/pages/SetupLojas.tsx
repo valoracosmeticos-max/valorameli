@@ -13,8 +13,6 @@ interface ManualForm {
   open: boolean;
   seller_id: string;
   app_id: string;
-  client_id: string;
-  client_secret: string;
   access_token: string;
   refresh_token: string;
   saving: boolean;
@@ -34,8 +32,6 @@ const emptyManual = (): ManualForm => ({
   open: false,
   seller_id: "",
   app_id: "",
-  client_id: "",
-  client_secret: "",
   access_token: "",
   refresh_token: "",
   saving: false,
@@ -233,8 +229,8 @@ const SetupLojas = () => {
     const m = slot.manual;
     if (!name) return updateManual(idx, { error: "Informe o nome da loja acima." });
     if (!m) return;
-    if (!m.seller_id.trim() || !m.refresh_token.trim()) {
-      return updateManual(idx, { error: "Preencha Seller ID e Refresh Token." });
+    if (!m.seller_id.trim() || !m.access_token.trim() || !m.refresh_token.trim()) {
+      return updateManual(idx, { error: "Preencha Seller ID, Access Token e Refresh Token." });
     }
     updateManual(idx, { saving: true, error: null });
     try {
@@ -243,8 +239,6 @@ const SetupLojas = () => {
           store_name: name,
           seller_id: m.seller_id.trim(),
           app_id: m.app_id.trim() || undefined,
-          client_id: m.client_id.trim() || undefined,
-          client_secret: m.client_secret.trim() || undefined,
           access_token: m.access_token.trim(),
           refresh_token: m.refresh_token.trim(),
         },
@@ -401,26 +395,8 @@ const SetupLojas = () => {
                         disabled={slot.manual.saving}
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Client ID do app da loja (opcional)</Label>
-                      <Input
-                        placeholder="Ex: 1234567890123456"
-                        value={slot.manual.client_id}
-                        onChange={(e) => updateManual(idx, { client_id: e.target.value })}
-                        disabled={slot.manual.saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Client Secret do app da loja (obrigatório se preencher o Client ID)</Label>
-                      <Input
-                        type="password"
-                        value={slot.manual.client_secret}
-                        onChange={(e) => updateManual(idx, { client_secret: e.target.value })}
-                        disabled={slot.manual.saving}
-                      />
-                    </div>
                     <div className="space-y-1.5 md:col-span-2">
-                      <Label className="text-xs">Access Token (opcional)</Label>
+                      <Label className="text-xs">Access Token</Label>
                       <Input
                         placeholder="APP_USR-..."
                         value={slot.manual.access_token}
