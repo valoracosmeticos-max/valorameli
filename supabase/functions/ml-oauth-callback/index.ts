@@ -79,6 +79,20 @@ Deno.serve(async (req) => {
     const expiresIn: number = tokenJson.expires_in ?? 21600;
     const sellerId: string = String(tokenJson.user_id);
 
+    // Sem offline_access não vem refresh_token utilizável e a loja para em 6h.
+    const grantedScope: string = String(tokenJson.scope ?? "");
+    if (!refreshToken || (grantedScope && !grantedScope.includes("offline_access"))) {
+      return new Response(
+        JSON.stringify({
+          error:
+            `O Mercado Livre autorizou a loja sem o escopo offline_access (concedidos: ${grantedScope || "nenhum"}). ` +
+            `Sem ele não é possível renovar o token automaticamente e a loja pararia de sincronizar em 6 horas. ` +
+            `Habilite offline_access nos escopos do aplicativo no Dev Center e autorize novamente.`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // Hardened validation
     if (!accessToken || !accessToken.startsWith("APP_USR-") || accessToken.length < 50) {
       return new Response(

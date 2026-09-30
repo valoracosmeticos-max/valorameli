@@ -89,18 +89,16 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      // Se o refresh token já foi usado/expirou, o access token atual ainda pode
-      // estar válido — testa antes de exigir reconexão.
+      // O access_token pode continuar valendo mesmo com o refresh quebrado, mas
+      // isso não é sucesso: sem refresh_token a loja para de novo em poucas horas.
+      // Responder "Token renovado" aqui escondia exatamente o problema que o
+      // usuário estava tentando diagnosticar, e deixava o badge vermelho.
+      let accessStillValid = false;
       if (fresh?.access_token) {
         const probe = await fetch("https://api.mercadolibre.com/users/me", {
           headers: { Authorization: `Bearer ${fresh.access_token}` },
         });
-        if (probe.ok) {
-          return new Response(
-            JSON.stringify({ success: true, expires_at: fresh.token_expires_at ?? null }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-          );
-        }
+        accessStillValid = probe.ok;
       }
 
       console.error("Refresh failed", json);
@@ -113,13 +111,17 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: wrongApp ? "wrong_app" : invalidGrant ? "reconnect_required" : "Refresh failed",
-          message: wrongApp
+          message: (wrongApp
             ? `Os tokens desta loja foram emitidos pelo aplicativo ${tokenAppId}, mas o sistema usa o ${clientId}. ` +
               `Só o aplicativo que gerou o refresh_token consegue renová-lo — por isso a loja conecta e para de renovar depois. ` +
               `Gere os tokens pelo aplicativo ${clientId} ou conecte via OAuth.`
             : invalidGrant
-              ? "A autorização desta loja expirou ou já foi usada. Reconecte a loja em Setup de Lojas."
-              : "Não foi possível renovar o token do Mercado Livre.",
+              ? "Esta loja não consegue renovar sozinha: o refresh_token é inválido, já foi usado, " +
+                "ou foi concedido sem o escopo offline_access. Reconecte a loja via OAuth em Setup de Lojas."
+              : "Não foi possível renovar o token do Mercado Livre.") +
+            (accessStillValid
+              ? " O access token atual ainda funciona, mas expira em até 6h e não será renovado automaticamente."
+              : ""),
           details: json,
         }),
         {

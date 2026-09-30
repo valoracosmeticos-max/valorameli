@@ -131,6 +131,22 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Sem offline_access o ML não emite refresh_token utilizável: a loja
+    // conectaria e morreria em 6h sem conseguir se renovar. É a causa clássica
+    // de tokens gerados pelo painel de teste do Dev Center.
+    const grantedScope: string = String(refreshJson.scope ?? "");
+    if (grantedScope && !grantedScope.includes("offline_access")) {
+      return new Response(
+        JSON.stringify({
+          error:
+            `Esta autorização não inclui o escopo offline_access (concedidos: ${grantedScope}). ` +
+            `Sem ele o Mercado Livre não permite renovação automática e a loja pararia de sincronizar em 6 horas. ` +
+            `Conecte a loja via OAuth em Setup de Lojas, que pede o escopo correto.`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const freshAccessToken: string = refreshJson.access_token ?? accessToken;
     const freshRefreshToken: string = refreshJson.refresh_token ?? refreshToken;
     const expiresAt = new Date(Date.now() + (refreshJson.expires_in ?? 21600) * 1000).toISOString();
