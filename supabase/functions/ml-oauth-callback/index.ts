@@ -48,8 +48,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    const clientId = Deno.env.get("ML_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("ML_CLIENT_SECRET")!;
+    const ownId = typeof (body as any).client_id === "string" ? (body as any).client_id.trim() : "";
+    const ownSecret = typeof (body as any).client_secret === "string" ? (body as any).client_secret.trim() : "";
+    const useOwn = /^\d{5,}$/.test(ownId) && ownSecret.length > 0;
+    const clientId = useOwn ? ownId : Deno.env.get("ML_CLIENT_ID")!;
+    const clientSecret = useOwn ? ownSecret : Deno.env.get("ML_CLIENT_SECRET")!;
+    const appCreds = useOwn ? { ml_client_id: ownId, ml_client_secret: ownSecret } : {};
 
     const params = new URLSearchParams({
       grant_type: "authorization_code",

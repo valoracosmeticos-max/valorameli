@@ -40,7 +40,7 @@ const MLCallback = () => {
     // O contexto vai em localStorage indexado pelo state — sessionStorage se perde
     // quando o ML devolve o retorno em outra aba. Fallback mantém compatibilidade
     // com autorizações iniciadas antes desta mudança.
-    let ctx: { verifier?: string; name?: string; redirectUri?: string; returnTo?: string } = {};
+    let ctx: { verifier?: string; name?: string; redirectUri?: string; returnTo?: string; clientId?: string; clientSecret?: string } = {};
     if (state) {
       try {
         ctx = JSON.parse(localStorage.getItem(`ml_oauth_${state}`) ?? "{}");
@@ -66,7 +66,10 @@ const MLCallback = () => {
 
     supabase.functions
       .invoke("ml-oauth-callback", {
-        body: { code, redirect_uri: redirectUri, store_name: storeName, code_verifier: verifier },
+        body: {
+          code, redirect_uri: redirectUri, store_name: storeName, code_verifier: verifier,
+          client_id: ctx.clientId, client_secret: ctx.clientSecret,
+        },
       })
       .then(async ({ data, error }) => {
         sessionStorage.removeItem("ml_pkce_verifier");
