@@ -18,7 +18,7 @@ import {
 import {
   TrendingUp, TrendingDown, DollarSign, Wallet, Package,
   AlertCircle, ArrowRight, Percent, CalendarIcon, Truck,
-  ShoppingBag, Receipt, XCircle,
+  ShoppingBag, Receipt, XCircle, Megaphone,
 } from "lucide-react";
 import { format, startOfDay, endOfDay, subDays, differenceInCalendarDays, eachDayOfInterval } from "date-fns";
 import type { DateRange } from "react-day-picker";
@@ -50,6 +50,7 @@ const Index = () => {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
   const [addCosts, setAddCosts] = useState<AddCostRow[]>([]);
+  const [adSpend, setAdSpend] = useState<{ store_id: string; charge_date: string; amount: number }[]>([]);
   const [period, setPeriod] = useState<string>("30");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [storeFilter, setStoreFilter] = useState<string>("all");
@@ -58,7 +59,7 @@ const Index = () => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [{ data: s }, { data: o }, { data: it }, { data: ac }] = await Promise.all([
+      const [{ data: s }, { data: o }, { data: it }, { data: ac }, { data: ad }] = await Promise.all([
         supabase.from("stores").select("id, name"),
         supabase.from("orders")
           .select("id, store_id, status, date_created, total_amount, amount_received, ml_fees, shipping_cost")
@@ -66,11 +67,13 @@ const Index = () => {
           .limit(2000),
         supabase.from("order_items").select("order_id, quantity, cost_price, title, unit_price"),
         supabase.from("additional_costs").select("amount, cost_type, cost_date"),
+        supabase.from("ad_spend").select("store_id, charge_date, amount"),
       ]);
       setStores(s ?? []);
       setOrders((o ?? []) as OrderRow[]);
       setItems((it ?? []) as ItemRow[]);
       setAddCosts((ac ?? []) as AddCostRow[]);
+      setAdSpend((ad ?? []) as any);
       setLoading(false);
     })();
   }, []);
@@ -144,14 +147,23 @@ const Index = () => {
       if (filtered.some((o) => o.id === i.order_id)) itemsQty += i.quantity;
     });
     const receivedNet = received - shipping;
-    const profit = revenue - fees - shipping - cost - additionalForPeriod;
+    // charge_date (DATE) comparado como string no fuso local — nunca period_key.
+    const fromKey = format(range.from, "yyyy-MM-dd");
+    const toKey = format(range.to, "yyyy-MM-dd");
+    let advertising = 0;
+    adSpend.forEach((a) => {
+      if (a.charge_date < fromKey || a.charge_date > toKey) return;
+      if (storeFilter !== "all" && a.store_id !== storeFilter) return;
+      advertising += Number(a.amount) || 0;
+    });
+    const profit = revenue - fees - shipping - cost - additionalForPeriod - advertising;
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
     const ticketMedio = filtered.length > 0 ? revenue / filtered.length : 0;
     return {
-      revenue, receivedNet, fees, cost, shipping, profit, margin,
+      revenue, receivedNet, fees, cost, shipping, profit, margin, advertising,
       additional: additionalForPeriod, count: filtered.length, itemsQty, ticketMedio,
     };
-  }, [filtered, items, costByOrder, additionalForPeriod]);
+  }, [filtered, items, costByOrder, additionalForPeriod, adSpend, range, storeFilter]);
 
   // ── Produtos mais vendidos ───────────────────────────────────────
   const productStats = useMemo(() => {
@@ -171,7 +183,7 @@ const Index = () => {
 
   // ── Distribuição de custos (para gráfico de pizza) ──────────────
   const costDistribution = useMemo(() => {
-    const { fees, shipping, cost, additional, profit, revenue } = totals;
+    const { fees, shipping, cost, additional, advertising, profit, revenue } = totals;
     if (revenue === 0) return [];
     return [
       { name: "Lucro", value: Math.max(0, profit) },
@@ -179,6 +191,7 @@ const Index = () => {
       { name: "Tarifa ML", value: fees },
       { name: "Frete", value: shipping },
       { name: "Custos Adicionais", value: additional },
+      { name: "Publicidade", value: advertising },
     ].filter((d) => d.value > 0);
   }, [totals]);
 
