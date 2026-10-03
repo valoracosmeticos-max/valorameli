@@ -172,7 +172,21 @@ const SetupLojas = () => {
         setConnectingName(null);
         return;
       }
-      const clientId = String(cfg.client_id);
+      // App privado do ML só autoriza a conta que o criou: cada loja precisa
+      // conectar pelo app criado na própria conta dela.
+      const ownId = (window.prompt(
+        `Client ID do aplicativo criado na conta da loja "${name}".\nDeixe vazio para usar o aplicativo padrão (${cfg.client_id}).`,
+      ) ?? "").trim();
+      let ownSecret = "";
+      if (ownId && ownId !== String(cfg.client_id)) {
+        ownSecret = (window.prompt(`Client Secret do aplicativo ${ownId}`) ?? "").trim();
+        if (!ownSecret) {
+          toast.error("Client Secret é obrigatório para usar o aplicativo próprio da loja.");
+          setConnectingName(null);
+          return;
+        }
+      }
+      const clientId = ownSecret ? ownId : String(cfg.client_id);
       const { verifier, challenge } = await generatePkce();
       const redirectUri = ML_REDIRECT_URI;
 
@@ -181,7 +195,10 @@ const SetupLojas = () => {
       pruneOauthState();
       localStorage.setItem(
         oauthKey(state),
-        JSON.stringify({ verifier, name, redirectUri, returnTo: "/setup-lojas", ts: Date.now() }),
+        JSON.stringify({
+          verifier, name, redirectUri, returnTo: "/setup-lojas", ts: Date.now(),
+          clientId: ownSecret ? ownId : undefined, clientSecret: ownSecret || undefined,
+        }),
       );
 
       // Parâmetros suportados pelo ML: response_type, client_id, redirect_uri,
