@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      ad_spend: {
+        Row: {
+          amount: number
+          charge_date: string
+          created_at: string
+          description: string | null
+          detail_id: string
+          detail_sub_type: string
+          id: string
+          period_key: string
+          store_id: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          charge_date: string
+          created_at?: string
+          description?: string | null
+          detail_id: string
+          detail_sub_type?: string
+          id?: string
+          period_key: string
+          store_id: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          charge_date?: string
+          created_at?: string
+          description?: string | null
+          detail_id?: string
+          detail_sub_type?: string
+          id?: string
+          period_key?: string
+          store_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_spend_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       additional_costs: {
         Row: {
           amount: number
