@@ -168,6 +168,7 @@ Deno.serve(async (req) => {
           refresh_token: refreshToken,
           token_expires_at: expiresAt,
           ml_nickname: nickname,
+          ...appCreds,
         })
         .eq("id", existing.id);
     } else {
@@ -179,6 +180,7 @@ Deno.serve(async (req) => {
         access_token: accessToken,
         refresh_token: refreshToken,
         token_expires_at: expiresAt,
+        ...appCreds,
       });
     }
 
