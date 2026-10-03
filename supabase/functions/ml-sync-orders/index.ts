@@ -309,6 +309,13 @@ Deno.serve(async (req) => {
                   cost_price: 0,
                 }).select("id").single();
                 product_id = newProd?.id ?? null;
+                if (!product_id) {
+                  // Outro pedido em paralelo pode ter criado o mesmo produto
+                  const { data: again } = await admin
+                    .from("products").select("id")
+                    .eq("user_id", userId).eq("ml_item_id", mlItemId).maybeSingle();
+                  product_id = again?.id ?? null;
+                }
               }
             }
 
