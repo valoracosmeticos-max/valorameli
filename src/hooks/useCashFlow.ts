@@ -12,7 +12,8 @@ export interface CashFlowIndicators {
   contasReceber: number;   // Pagamentos ainda não liberados (R$)
   contasPagar: number;     // Compras pendentes (R$)
   estoqueTotal: number;    // Valor total em estoque (R$)
-  PMRSamples: number;      // Qtd pagamentos usados no PMR
+  PMRSamples: number;      // Qtd pagamentos usados no PMR (liberados + previstos)
+  PMRReleased: number;     // Destes, quantos já foram liberados
   PMPSamples: number;      // Qtd compras usadas no PMP
 }
 
@@ -115,19 +116,28 @@ export const useCashFlow = (storeId: string, days = 90) => {
   const indicators: CashFlowIndicators | null = (() => {
     if (isLoading) return null;
 
-    // PMR: média(money_release_date − date_approved) para pagamentos liberados
-    const releasedPayments = releases.filter(
-      (r) => r.date_approved && r.money_release_date && r.money_release_status === "released"
+    // PMR: média(money_release_date − date_approved) dos pagamentos aprovados no
+    // período selecionado, em dias corridos fracionados.
+    //
+    // Entram os já liberados E os pendentes (com a data de liberação prevista pelo
+    // MP). Só com os liberados a média ignora justamente as vendas mais lentas, que
+    // ainda não caíram — nos dados reais: liberados 10,9 d vs pendentes 16,8 d.
+    // Dias fracionados em vez de differenceInDays, que trunca e perde até 1 dia
+    // por pagamento.
+    const MS_DIA = 86_400_000;
+    const pmrPayments = releases.filter(
+      (r) =>
+        r.date_approved &&
+        r.money_release_date &&
+        !isBefore(parseISO(r.date_approved), beginDate)
     );
-    const PMR = releasedPayments.length > 0
-      ? releasedPayments.reduce((sum, r) => {
-          const d = Math.max(
-            0,
-            differenceInDays(parseISO(r.money_release_date), parseISO(r.date_approved!))
-          );
-          return sum + d;
-        }, 0) / releasedPayments.length
+    const PMR = pmrPayments.length > 0
+      ? pmrPayments.reduce((sum, r) => {
+          const d = (parseISO(r.money_release_date).getTime() - parseISO(r.date_approved!).getTime()) / MS_DIA;
+          return sum + Math.max(0, d);
+        }, 0) / pmrPayments.length
       : 0;
+    const PMRReleased = pmrPayments.filter((r) => r.money_release_status === "released").length;
 
     // Contas a Receber: pagamentos futuros não liberados
     const contasReceber = releases
@@ -179,7 +189,8 @@ export const useCashFlow = (storeId: string, days = 90) => {
       contasReceber,
       contasPagar,
       estoqueTotal,
-      PMRSamples: releasedPayments.length,
+      PMRSamples: pmrPayments.length,
+      PMRReleased,
       PMPSamples: paidPurchases.length,
     };
   })();

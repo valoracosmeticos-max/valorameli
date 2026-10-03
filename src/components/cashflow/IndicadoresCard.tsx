@@ -27,8 +27,8 @@ export const IndicadoresCard = ({ indicators }: Props) => {
       sub: "Prazo Médio de Recebimento",
       value: fmtDias(PMR),
       color: "text-blue-600",
-      tip: "Média de dias entre a aprovação do pagamento e a liberação pelo Mercado Pago.",
-      sample: `${indicators.PMRSamples} pgto(s) analisados`,
+      tip: "Média de dias entre a aprovação do pagamento e a liberação pelo Mercado Pago, nos pagamentos aprovados no período. Inclui os já liberados e os pendentes (data de liberação prevista pelo MP, que pode mudar se a entrega atrasar).",
+      sample: `${indicators.PMRReleased} liberados + ${indicators.PMRSamples - indicators.PMRReleased} previstos`,
     },
     {
       title: "PMP",
