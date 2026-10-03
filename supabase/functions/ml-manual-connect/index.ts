@@ -11,6 +11,8 @@ interface Body {
   access_token: string;
   refresh_token: string;
   app_id?: string;
+  client_id?: string;
+  client_secret?: string;
 }
 
 // O access_token do ML carrega o aplicativo que o emitiu: APP_USR-<app_id>-<...>.
@@ -27,7 +29,7 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -42,7 +44,7 @@ Deno.serve(async (req) => {
     });
     const { data: userData, error: userErr } = await userClient.auth.getUser();
     if (userErr || !userData.user) {
-      return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -55,30 +57,55 @@ Deno.serve(async (req) => {
     const accessToken = (body.access_token ?? "").trim();
     const refreshToken = (body.refresh_token ?? "").trim();
 
-    if (!storeName || !sellerId || !accessToken || !refreshToken) {
-      return new Response(JSON.stringify({ success: false, error: "Campos obrigatórios faltando." }), {
+    let customClientId = String(body.client_id ?? "").trim();
+    let customClientSecret = String(body.client_secret ?? "").trim();
+    // O campo "Id do aplicativo" também identifica o app; usa como Client ID.
+    if (!customClientId && customClientSecret && body.app_id) customClientId = String(body.app_id).trim();
+    // Client ID igual ao app do sistema dispensa secret próprio.
+    if (customClientId === Deno.env.get("ML_CLIENT_ID")) { customClientId = ""; customClientSecret = ""; }
+    // Só o Client ID: reaproveita o secret já salvo para essa loja/app.
+    if (customClientId && !customClientSecret) {
+      const { data: prev } = await createClient(supabaseUrl, serviceKey)
+        .from("stores").select("ml_client_secret")
+        .eq("user_id", userId).eq("ml_seller_id", sellerId).eq("ml_client_id", customClientId)
+        .maybeSingle();
+      customClientSecret = prev?.ml_client_secret ?? "";
+    }
+    if ((customClientId && !customClientSecret) || (!customClientId && customClientSecret)) {
+      return new Response(JSON.stringify({
+        error: customClientId
+          ? "Preencha também o Client Secret do aplicativo da loja (Dev Center do Mercado Livre)."
+          : "Preencha também o Client ID do aplicativo da loja.",
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!storeName || !sellerId || !refreshToken) {
+      return new Response(JSON.stringify({ error: "Campos obrigatórios faltando." }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     if (!/^\d{6,12}$/.test(sellerId)) {
-      return new Response(JSON.stringify({ success: false, error: `Seller ID inválido (${sellerId}).` }), {
+      return new Response(JSON.stringify({ error: `Seller ID inválido (${sellerId}).` }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     // Não impomos prefixo (APP_USR- / TG-): o Dev Center do ML às vezes mostra
     // tokens em formatos diferentes. Quem decide se o token vale é o /users/me.
-    if (accessToken.length < 10) {
-      return new Response(JSON.stringify({ success: false, error: "Access Token muito curto — copie o valor completo." }), {
+    if (accessToken && accessToken.length < 10) {
+      return new Response(JSON.stringify({ error: "Access Token muito curto — copie o valor completo." }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
 
-    const clientId = Deno.env.get("ML_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("ML_CLIENT_SECRET")!;
+    const clientId = customClientId || Deno.env.get("ML_CLIENT_ID")!;
+    const clientSecret = customClientSecret || Deno.env.get("ML_CLIENT_SECRET")!;
 
     // Tokens de outro aplicativo conectam mas nunca renovam — barra antes de salvar.
     const tokenAppId = appIdFromAccessToken(accessToken);
@@ -112,10 +139,10 @@ Deno.serve(async (req) => {
 
     if (!refreshResp.ok) {
       console.error("ML refresh test failed:", refreshResp.status, refreshJson);
-      const probe = await fetch("https://api.mercadolibre.com/users/me", {
+      const probe = accessToken ? await fetch("https://api.mercadolibre.com/users/me", {
         headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const accessOk = probe.ok;
+      }) : null;
+      const accessOk = !!probe?.ok;
       return new Response(
         JSON.stringify({
           error:
@@ -126,6 +153,22 @@ Deno.serve(async (req) => {
             `O ML retorna esse erro quando o refresh_token já foi usado (é de uso único), quando ele pertence a outro aplicativo, ` +
             `ou quando a conta do vendedor tem dados/documentos pendentes de validação no Mercado Livre.`,
           details: refreshJson,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Sem offline_access o ML não emite refresh_token utilizável: a loja
+    // conectaria e morreria em 6h sem conseguir se renovar. É a causa clássica
+    // de tokens gerados pelo painel de teste do Dev Center.
+    const grantedScope: string = String(refreshJson.scope ?? "");
+    if (grantedScope && !grantedScope.includes("offline_access")) {
+      return new Response(
+        JSON.stringify({
+          error:
+            `Esta autorização não inclui o escopo offline_access (concedidos: ${grantedScope}). ` +
+            `Sem ele o Mercado Livre não permite renovação automática e a loja pararia de sincronizar em 6 horas. ` +
+            `Conecte a loja via OAuth em Setup de Lojas, que pede o escopo correto.`,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -151,7 +194,7 @@ Deno.serve(async (req) => {
     const me = await meResp.json();
     if (String(me.id) !== sellerId) {
       return new Response(
-        JSON.stringify({ success: false, error: `O Seller ID informado (${sellerId}) não bate com o dono do token (${me.id}).` }),
+        JSON.stringify({ error: `O Seller ID informado (${sellerId}) não bate com o dono do token (${me.id}).` }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -175,6 +218,8 @@ Deno.serve(async (req) => {
           refresh_token: freshRefreshToken,
           token_expires_at: expiresAt,
           ml_nickname: nickname,
+          ml_client_id: customClientId || null,
+          ml_client_secret: customClientSecret || null,
         })
         .eq("id", existing.id);
     } else {
@@ -186,6 +231,8 @@ Deno.serve(async (req) => {
         access_token: freshAccessToken,
         refresh_token: freshRefreshToken,
         token_expires_at: expiresAt,
+        ml_client_id: customClientId || null,
+        ml_client_secret: customClientSecret || null,
       });
     }
 
@@ -194,7 +241,7 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error(e);
-    return new Response(JSON.stringify({ success: false, error: String(e) }), {
+    return new Response(JSON.stringify({ error: String(e) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
