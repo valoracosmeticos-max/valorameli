@@ -231,6 +231,7 @@ const Index = () => {
     { label: "Recebido", value: fmtBRL(totals.receivedNet), icon: Wallet, color: "text-success" },
     { label: "Custo produtos", value: fmtBRL(totals.cost), icon: Package, color: "text-warning" },
     { label: "Custos adicionais", value: fmtBRL(totals.additional), icon: Wallet, color: "text-warning" },
+    { label: "Publicidade", value: fmtBRL(totals.advertising), icon: Megaphone, color: "text-warning" },
     { label: "Lucro", value: fmtBRL(totals.profit), icon: totals.profit >= 0 ? TrendingUp : TrendingDown,
       color: totals.profit >= 0 ? "text-success" : "text-destructive" },
     { label: "Margem", value: fmtPct(totals.margin), icon: Percent, color: "text-muted-foreground" },
@@ -250,7 +251,7 @@ const Index = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {totals.count} pedido(s) · cancelados/reembolsados excluídos · Lucro = Faturamento − Tarifa ML − Frete − Custo Produtos − Custos Adicionais
+            {totals.count} pedido(s) · cancelados/reembolsados excluídos · Lucro = Faturamento − Tarifa ML − Frete − Custo Produtos − Custos Adicionais − Publicidade
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">

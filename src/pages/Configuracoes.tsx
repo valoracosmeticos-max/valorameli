@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud, Settings2 } from "lucide-react";
+import { RefreshCw, Store, CheckCircle2, AlertTriangle, Trash2, DownloadCloud, Settings2, Megaphone } from "lucide-react";
 import { format } from "date-fns";
 
 interface StoreRow {
@@ -24,6 +24,7 @@ const Configuracoes = () => {
   const [refreshingId,  setRefreshingId]  = useState<string | null>(null);
   const [syncingId,     setSyncingId]     = useState<string | null>(null);
   const [syncingMpId,   setSyncingMpId]   = useState<string | null>(null);
+  const [syncingAdsId,  setSyncingAdsId]  = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -73,6 +74,29 @@ const Configuracoes = () => {
     }
     toast.success(`Pagamentos MP sincronizados: ${data?.synced ?? 0} registro(s)`);
   };
+
+  const syncAds = async (storeId: string) => {
+    setSyncingAdsId(storeId);
+    toast.info("Sincronizando gastos com publicidade... isso pode levar alguns minutos.");
+    const { data, error } = await supabase.functions.invoke("ml-sync-billing", {
+      body: { store_id: storeId, months: 3 },
+    });
+    setSyncingAdsId(null);
+    if (error) {
+      toast.error("Falha ao sincronizar publicidade: " + error.message);
+      return;
+    }
+    const summary: any[] = data?.summary ?? [];
+    const total = summary.reduce((acc, s) => acc + (Number(s.synced) || 0), 0);
+    toast.success(`Publicidade sincronizada: ${total} lançamento(s)`);
+    summary
+      .filter((s) => s.mismatch != null && Number(s.mismatch) !== 0)
+      .forEach((s) => {
+        const v = Number(s.mismatch).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        toast.warning(`Período ${s.period}: a soma dos lançamentos divergiu do total da fatura em ${v}.`);
+      });
+  };
+
 
   const syncStore = async (storeId: string) => {
     setSyncingId(storeId);
@@ -175,6 +199,15 @@ const Configuracoes = () => {
                   >
                     <DownloadCloud className={`h-3.5 w-3.5 mr-1.5 ${syncingMpId === s.id ? "animate-pulse" : ""}`} />
                     {syncingMpId === s.id ? "Sync MP..." : "Pagamentos MP"}
+                  </Button>
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => syncAds(s.id)}
+                    disabled={syncingAdsId === s.id}
+                    title="Sincronizar gastos com publicidade"
+                  >
+                    <Megaphone className={`h-3.5 w-3.5 mr-1.5 ${syncingAdsId === s.id ? "animate-pulse" : ""}`} />
+                    {syncingAdsId === s.id ? "Sync Ads..." : "Publicidade"}
                   </Button>
                   <Button
                     size="sm" variant="outline"
