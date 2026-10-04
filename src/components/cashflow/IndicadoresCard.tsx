@@ -27,7 +27,12 @@ export const IndicadoresCard = ({ indicators }: Props) => {
       sub: "Prazo Médio de Recebimento",
       value: fmtDias(PMR),
       color: "text-blue-600",
-      tip: "Média de dias entre a aprovação do pagamento e a liberação pelo Mercado Pago, nos pagamentos aprovados no período. Inclui os já liberados e os pendentes (data de liberação prevista pelo MP, que pode mudar se a entrega atrasar).",
+      tip:
+        "Média de dias entre a aprovação do pagamento e a liberação pelo Mercado Pago, nas vendas do Mercado Livre aprovadas no período. " +
+        "Inclui os já liberados e os pendentes (data de liberação prevista pelo MP, que pode mudar se a entrega atrasar)." +
+        (indicators.PMRExcluded > 0
+          ? ` Não conta ${indicators.PMRExcluded} pagamento(s) sem pedido do ML vinculado (recebimentos fora do marketplace, ou pedido ainda não sincronizado).`
+          : ""),
       sample: `${indicators.PMRReleased} liberados + ${indicators.PMRSamples - indicators.PMRReleased} previstos`,
     },
     {

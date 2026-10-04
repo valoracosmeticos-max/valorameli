@@ -14,12 +14,14 @@ export interface CashFlowIndicators {
   estoqueTotal: number;    // Valor total em estoque (R$)
   PMRSamples: number;      // Qtd pagamentos usados no PMR (liberados + previstos)
   PMRReleased: number;     // Destes, quantos já foram liberados
+  PMRExcluded: number;     // Pagamentos do período fora do PMR por não terem pedido do ML vinculado
   PMPSamples: number;      // Qtd compras usadas no PMP
 }
 
 export interface ReleaseEvent {
   mp_payment_id: string;
   ml_order_id: string | null;
+  order_db_id: string | null;
   money_release_date: string;
   money_release_status: string | null;
   net_received_amount: number;
@@ -40,7 +42,7 @@ export const useCashFlow = (storeId: string, days = 90) => {
       const { data, error } = await (supabase as any)
         .from("payments_releases")
         .select(
-          "mp_payment_id, ml_order_id, money_release_date, money_release_status, " +
+          "mp_payment_id, ml_order_id, order_db_id, money_release_date, money_release_status, " +
           "net_received_amount, transaction_amount, date_approved, installments, payment_method_id"
         )
         .eq("store_id", storeId)
@@ -124,13 +126,22 @@ export const useCashFlow = (storeId: string, days = 90) => {
     // ainda não caíram — nos dados reais: liberados 10,9 d vs pendentes 16,8 d.
     // Dias fracionados em vez de differenceInDays, que trunca e perde até 1 dia
     // por pagamento.
+    //
+    // Só entram pagamentos vinculados a um pedido do ML (order_db_id). O
+    // ml_order_id sozinho não serve de filtro: ele vem do external_reference do
+    // pagamento, que links de pagamento, QR e outras integrações também
+    // preenchem, com texto livre. Nos dados reais, 85 de 98 pagamentos sem
+    // pedido não tinham ID no formato do ML (2000 + 12 dígitos), e os rápidos
+    // (0-1 dia) eram 67% sem pedido contra 20% nos lentos.
     const MS_DIA = 86_400_000;
-    const pmrPayments = releases.filter(
+    const inPeriod = releases.filter(
       (r) =>
         r.date_approved &&
         r.money_release_date &&
         !isBefore(parseISO(r.date_approved), beginDate)
     );
+    const pmrPayments = inPeriod.filter((r) => r.order_db_id);
+    const PMRExcluded = inPeriod.length - pmrPayments.length;
     const PMR = pmrPayments.length > 0
       ? pmrPayments.reduce((sum, r) => {
           const d = (parseISO(r.money_release_date).getTime() - parseISO(r.date_approved!).getTime()) / MS_DIA;
@@ -191,6 +202,7 @@ export const useCashFlow = (storeId: string, days = 90) => {
       estoqueTotal,
       PMRSamples: pmrPayments.length,
       PMRReleased,
+      PMRExcluded,
       PMPSamples: paidPurchases.length,
     };
   })();
