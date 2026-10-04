@@ -306,7 +306,7 @@ const Index = () => {
       )}
 
       {/* ── KPIs principais ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
         {cards.map((c) => (
           <Card key={c.label} className="shadow-soft border-border/60">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
