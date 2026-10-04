@@ -19,8 +19,8 @@ async function refreshIfNeeded(admin: any, store: any): Promise<string> {
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: Deno.env.get("ML_CLIENT_ID")!,
-      client_secret: Deno.env.get("ML_CLIENT_SECRET")!,
+      client_id: store.ml_client_id || Deno.env.get("ML_CLIENT_ID")!,
+      client_secret: store.ml_client_secret || Deno.env.get("ML_CLIENT_SECRET")!,
       refresh_token: store.refresh_token,
     }).toString(),
   });
@@ -46,9 +46,15 @@ async function refreshIfNeeded(admin: any, store: any): Promise<string> {
 }
 
 async function mlGet(url: string, token: string) {
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!r.ok) throw new Error(`ML GET ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return r.json();
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.status === 429 && attempt < 4) {
+      await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)));
+      continue;
+    }
+    if (!r.ok) throw new Error(`ML GET ${r.status}: ${(await r.text()).slice(0, 400)}`);
+    return r.json();
+  }
 }
 
 // A key do período é sempre o primeiro dia do mês; a doc recomenda construí-la
