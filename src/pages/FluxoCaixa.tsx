@@ -13,6 +13,7 @@ import { IndicadoresCard } from "@/components/cashflow/IndicadoresCard";
 import { CalendarioRecebimentos } from "@/components/cashflow/CalendarioRecebimentos";
 import { CicloChart } from "@/components/cashflow/CicloChart";
 import { ContasReceberTable } from "@/components/cashflow/ContasReceberTable";
+import { LucroCaixaMes } from "@/components/cashflow/LucroCaixaMes";
 
 interface StoreRow { id: string; name: string }
 
@@ -100,6 +101,8 @@ const FluxoCaixa = () => {
         </Card>
       ) : (
         <>
+          <LucroCaixaMes storeId={storeId} />
+
           <IndicadoresCard indicators={indicators} />
 
           {/* Chart */}
