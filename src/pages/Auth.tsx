@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -12,12 +12,16 @@ import { TrendingUp } from "lucide-react";
 const Auth = () => {
   const { session, loading } = useAuth();
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const rawNext = params.get("next") ?? "/";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+  const go = () => { if (next.startsWith("/.lovable/")) window.location.href = next; else nav(next, { replace: true }); };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   if (loading) return null;
-  if (session) return <Navigate to="/" replace />;
+  if (session) { if (next.startsWith("/.lovable/")) { window.location.href = next; return null; } return <Navigate to={next} replace />; }
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +33,7 @@ const Auth = () => {
       return;
     }
     toast.success("Bem-vindo!");
-    nav("/", { replace: true });
+    go();
   };
 
   return (
