@@ -19,26 +19,25 @@ interface StoreRow { id: string; name: string }
 
 const FluxoCaixa = () => {
   const [stores,      setStores]      = useState<StoreRow[]>([]);
-  const [storeId,     setStoreId]     = useState<string>("");
+  const [storeId,     setStoreId]     = useState<string>("all");
   const [syncingMp,   setSyncingMp]   = useState(false);
   const [days,        setDays]        = useState(90);
+
+  // "all" = todas as lojas (sem filtro de loja nos cálculos)
+  const effectiveStoreId = storeId === "all" ? undefined : storeId;
 
   useEffect(() => {
     supabase
       .from("stores")
       .select("id, name")
       .order("created_at")
-      .then(({ data }) => {
-        const rows = data ?? [];
-        setStores(rows);
-        if (rows.length > 0) setStoreId(rows[0].id);
-      });
+      .then(({ data }) => setStores(data ?? []));
   }, []);
 
-  const { indicators, upcomingReleases, isLoading, refetch } = useCashFlow(storeId || undefined, days);
+  const { indicators, upcomingReleases, isLoading, refetch } = useCashFlow(effectiveStoreId, days);
 
   const syncPayments = async () => {
-    if (!storeId) return;
+    if (!effectiveStoreId) return;
     setSyncingMp(true);
     toast.info("Sincronizando pagamentos MP... aguarde.");
     const { data, error } = await supabase.functions.invoke("mp-sync-payments", {
