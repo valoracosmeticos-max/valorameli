@@ -90,7 +90,7 @@ const FluxoCaixa = () => {
         </div>
       </div>
 
-      {/* Indicadores */}
+      {/* Conteúdo em abas */}
       {isLoading ? (
         <Card className="shadow-soft border-border/60">
           <CardContent className="py-12 text-center text-muted-foreground">Carregando indicadores...</CardContent>
@@ -100,39 +100,47 @@ const FluxoCaixa = () => {
           <CardContent className="py-12 text-center text-muted-foreground">Selecione uma loja para ver o fluxo de caixa</CardContent>
         </Card>
       ) : (
-        <>
-          <LucroCaixaMes storeId={storeId} />
+        <Tabs defaultValue="lucro-caixa">
+          <TabsList>
+            <TabsTrigger value="lucro-caixa">Lucro em Caixa do Mês</TabsTrigger>
+            <TabsTrigger value="indicadores">Indicadores &amp; Recebimentos</TabsTrigger>
+          </TabsList>
 
-          <IndicadoresCard indicators={indicators} />
+          <TabsContent value="lucro-caixa" className="mt-4">
+            <LucroCaixaMes storeId={storeId} />
+          </TabsContent>
 
-          {/* Chart */}
-          <CicloChart indicators={indicators} />
+          <TabsContent value="indicadores" className="mt-4 space-y-6">
+            <IndicadoresCard indicators={indicators} />
 
-          {/* Tabs: Calendário / Contas a Receber */}
-          <Tabs defaultValue="calendario">
-            <TabsList>
-              <TabsTrigger value="calendario">Calendário de Recebimentos</TabsTrigger>
-              <TabsTrigger value="tabela">Detalhamento</TabsTrigger>
-            </TabsList>
-            <TabsContent value="calendario" className="mt-4">
-              {upcomingReleases.length === 0 ? (
-                <Card className="shadow-soft border-border/60">
-                  <CardHeader><CardTitle>Calendário de Recebimentos</CardTitle></CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      Nenhum recebimento futuro encontrado. Clique em "Sync MP" para importar os pagamentos do Mercado Pago.
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <CalendarioRecebimentos releases={upcomingReleases} />
-              )}
-            </TabsContent>
-            <TabsContent value="tabela" className="mt-4">
-              <ContasReceberTable releases={upcomingReleases} />
-            </TabsContent>
-          </Tabs>
-        </>
+            <CicloChart indicators={indicators} />
+
+            {/* Tabs: Calendário / Contas a Receber */}
+            <Tabs defaultValue="calendario">
+              <TabsList>
+                <TabsTrigger value="calendario">Calendário de Recebimentos</TabsTrigger>
+                <TabsTrigger value="tabela">Detalhamento</TabsTrigger>
+              </TabsList>
+              <TabsContent value="calendario" className="mt-4">
+                {upcomingReleases.length === 0 ? (
+                  <Card className="shadow-soft border-border/60">
+                    <CardHeader><CardTitle>Calendário de Recebimentos</CardTitle></CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground text-center py-8">
+                        Nenhum recebimento futuro encontrado. Clique em "Sync MP" para importar os pagamentos do Mercado Pago.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <CalendarioRecebimentos releases={upcomingReleases} />
+                )}
+              </TabsContent>
+              <TabsContent value="tabela" className="mt-4">
+                <ContasReceberTable releases={upcomingReleases} />
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
