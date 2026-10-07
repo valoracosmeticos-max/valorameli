@@ -43,6 +43,7 @@ export const ContasReceberTable = ({ releases }: Props) => {
           <Table>
             <TableHeader>
               <TableRow>
+                {showStore && <TableHead>Loja</TableHead>}
                 <TableHead>Pedido ML</TableHead>
                 <TableHead>Data do pedido</TableHead>
                 <TableHead>Data liberação</TableHead>
@@ -55,6 +56,7 @@ export const ContasReceberTable = ({ releases }: Props) => {
                 const daysLeft = differenceInDays(parseISO(r.money_release_date), today);
                 return (
                   <TableRow key={r.mp_payment_id}>
+                    {showStore && <TableCell className="text-sm">{r.store_name ?? "—"}</TableCell>}
                     <TableCell className="font-mono text-xs">
                       {r.ml_order_id ?? <span className="text-muted-foreground">—</span>}
                     </TableCell>
