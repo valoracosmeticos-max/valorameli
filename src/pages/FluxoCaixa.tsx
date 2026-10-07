@@ -100,10 +100,6 @@ const FluxoCaixa = () => {
         <Card className="shadow-soft border-border/60">
           <CardContent className="py-12 text-center text-muted-foreground">Carregando indicadores...</CardContent>
         </Card>
-      ) : !storeId ? (
-        <Card className="shadow-soft border-border/60">
-          <CardContent className="py-12 text-center text-muted-foreground">Selecione uma loja para ver o fluxo de caixa</CardContent>
-        </Card>
       ) : (
         <Tabs defaultValue="lucro-caixa">
           <TabsList>
@@ -112,7 +108,7 @@ const FluxoCaixa = () => {
           </TabsList>
 
           <TabsContent value="lucro-caixa" className="mt-4">
-            <LucroCaixaMes storeId={storeId} />
+            <LucroCaixaMes storeId={effectiveStoreId} />
           </TabsContent>
 
           <TabsContent value="indicadores" className="mt-4 space-y-6">
