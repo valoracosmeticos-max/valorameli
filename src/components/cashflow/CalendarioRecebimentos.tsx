@@ -73,6 +73,9 @@ export const CalendarioRecebimentos = ({ releases }: Props) => {
                     >
                       <span>
                         {format(parseISO(ev.money_release_date), "EEE dd/MM", { locale: ptBR })}
+                        {ev.store_name && (
+                          <span className="ml-1.5 font-medium text-foreground/70">{ev.store_name}</span>
+                        )}
                         {ev.installments > 1 && (
                           <span className="ml-1 text-muted-foreground/60">{ev.installments}x</span>
                         )}

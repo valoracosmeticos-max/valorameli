@@ -19,26 +19,25 @@ interface StoreRow { id: string; name: string }
 
 const FluxoCaixa = () => {
   const [stores,      setStores]      = useState<StoreRow[]>([]);
-  const [storeId,     setStoreId]     = useState<string>("");
+  const [storeId,     setStoreId]     = useState<string>("all");
   const [syncingMp,   setSyncingMp]   = useState(false);
   const [days,        setDays]        = useState(90);
+
+  // "all" = todas as lojas (sem filtro de loja nos cálculos)
+  const effectiveStoreId = storeId === "all" ? undefined : storeId;
 
   useEffect(() => {
     supabase
       .from("stores")
       .select("id, name")
       .order("created_at")
-      .then(({ data }) => {
-        const rows = data ?? [];
-        setStores(rows);
-        if (rows.length > 0) setStoreId(rows[0].id);
-      });
+      .then(({ data }) => setStores(data ?? []));
   }, []);
 
-  const { indicators, upcomingReleases, isLoading, refetch } = useCashFlow(storeId || undefined, days);
+  const { indicators, upcomingReleases, isLoading, refetch } = useCashFlow(effectiveStoreId, days);
 
   const syncPayments = async () => {
-    if (!storeId) return;
+    if (!effectiveStoreId) return;
     setSyncingMp(true);
     toast.info("Sincronizando pagamentos MP... aguarde.");
     const { data, error } = await supabase.functions.invoke("mp-sync-payments", {
@@ -80,10 +79,16 @@ const FluxoCaixa = () => {
           <Select value={storeId} onValueChange={setStoreId}>
             <SelectTrigger className="w-48"><SelectValue placeholder="Selecionar loja" /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">Todas as lojas</SelectItem>
               {stores.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button onClick={syncPayments} disabled={syncingMp || !storeId} variant="outline">
+          <Button
+            onClick={syncPayments}
+            disabled={syncingMp || !effectiveStoreId}
+            variant="outline"
+            title={effectiveStoreId ? undefined : "Selecione uma loja para sincronizar"}
+          >
             <RefreshCw className={`h-4 w-4 mr-2 ${syncingMp ? "animate-spin" : ""}`} />
             {syncingMp ? "Sincronizando..." : "Sync MP"}
           </Button>
@@ -95,10 +100,6 @@ const FluxoCaixa = () => {
         <Card className="shadow-soft border-border/60">
           <CardContent className="py-12 text-center text-muted-foreground">Carregando indicadores...</CardContent>
         </Card>
-      ) : !storeId ? (
-        <Card className="shadow-soft border-border/60">
-          <CardContent className="py-12 text-center text-muted-foreground">Selecione uma loja para ver o fluxo de caixa</CardContent>
-        </Card>
       ) : (
         <Tabs defaultValue="lucro-caixa">
           <TabsList>
@@ -107,7 +108,7 @@ const FluxoCaixa = () => {
           </TabsList>
 
           <TabsContent value="lucro-caixa" className="mt-4">
-            <LucroCaixaMes storeId={storeId} />
+            <LucroCaixaMes storeId={effectiveStoreId} />
           </TabsContent>
 
           <TabsContent value="indicadores" className="mt-4 space-y-6">
@@ -116,29 +117,38 @@ const FluxoCaixa = () => {
             <CicloChart indicators={indicators} />
 
             {/* Tabs: Calendário / Contas a Receber */}
-            <Tabs defaultValue="calendario">
-              <TabsList>
-                <TabsTrigger value="calendario">Calendário de Recebimentos</TabsTrigger>
-                <TabsTrigger value="tabela">Detalhamento</TabsTrigger>
-              </TabsList>
-              <TabsContent value="calendario" className="mt-4">
-                {upcomingReleases.length === 0 ? (
-                  <Card className="shadow-soft border-border/60">
-                    <CardHeader><CardTitle>Calendário de Recebimentos</CardTitle></CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground text-center py-8">
-                        Nenhum recebimento futuro encontrado. Clique em "Sync MP" para importar os pagamentos do Mercado Pago.
-                      </p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <CalendarioRecebimentos releases={upcomingReleases} />
-                )}
-              </TabsContent>
-              <TabsContent value="tabela" className="mt-4">
-                <ContasReceberTable releases={upcomingReleases} />
-              </TabsContent>
-            </Tabs>
+            {(() => {
+              const storeNames = new Map(stores.map((s) => [s.id, s.name]));
+              const releases = upcomingReleases.map((r) => ({
+                ...r,
+                store_name: r.store_id ? storeNames.get(r.store_id) : undefined,
+              }));
+              return (
+                <Tabs defaultValue="calendario">
+                  <TabsList>
+                    <TabsTrigger value="calendario">Calendário de Recebimentos</TabsTrigger>
+                    <TabsTrigger value="tabela">Detalhamento</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="calendario" className="mt-4">
+                    {releases.length === 0 ? (
+                      <Card className="shadow-soft border-border/60">
+                        <CardHeader><CardTitle>Calendário de Recebimentos</CardTitle></CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground text-center py-8">
+                            Nenhum recebimento futuro encontrado. Clique em "Sync MP" para importar os pagamentos do Mercado Pago.
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <CalendarioRecebimentos releases={releases} />
+                    )}
+                  </TabsContent>
+                  <TabsContent value="tabela" className="mt-4">
+                    <ContasReceberTable releases={releases} />
+                  </TabsContent>
+                </Tabs>
+              );
+            })()}
           </TabsContent>
         </Tabs>
       )}

@@ -22,6 +22,7 @@ export interface ReleaseEvent {
   mp_payment_id: string;
   ml_order_id: string | null;
   order_db_id: string | null;
+  store_id: string | null;
   money_release_date: string;
   money_release_status: string | null;
   net_received_amount: number;
@@ -29,77 +30,79 @@ export interface ReleaseEvent {
   date_approved: string | null;
   installments: number;
   payment_method_id: string | null;
+  store_name?: string;
 }
 
-export const useCashFlow = (storeId: string, days = 90) => {
+export const useCashFlow = (storeId: string | undefined, days = 90) => {
   const today     = new Date();
   const beginDate = new Date(Date.now() - days * 86400_000);
 
   // ── Pagamentos (para PMR + calendário) ─────────────────────────────
+  // storeId undefined = todas as lojas (sem filtro de loja).
   const { data: releases = [], isLoading: loadingReleases, refetch: refetchReleases } = useQuery({
-    queryKey: ["payments_releases", storeId, days],
+    queryKey: ["payments_releases", storeId ?? "all", days],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      let q = (supabase as any)
         .from("payments_releases")
         .select(
-          "mp_payment_id, ml_order_id, order_db_id, money_release_date, money_release_status, " +
+          "mp_payment_id, ml_order_id, order_db_id, store_id, money_release_date, money_release_status, " +
           "net_received_amount, transaction_amount, date_approved, installments, payment_method_id"
-        )
-        .eq("store_id", storeId)
+        );
+      if (storeId) q = q.eq("store_id", storeId);
+      const { data, error } = await q
         .not("money_release_date", "is", null)
         .order("money_release_date", { ascending: true });
       if (error) throw error;
       return ((data ?? []) as unknown) as ReleaseEvent[];
     },
-    enabled: !!storeId,
   });
 
   // ── Compras (para PMP + contas a pagar) ────────────────────────────
   const { data: purchases = [], isLoading: loadingPurchases } = useQuery({
-    queryKey: ["purchases", storeId],
+    queryKey: ["purchases", storeId ?? "all"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("purchases")
-        .select("id, purchase_date, due_date, paid_date, total_amount, status")
-        .eq("store_id", storeId);
+        .select("id, purchase_date, due_date, paid_date, total_amount, status");
+      if (storeId) q = q.eq("store_id", storeId);
+      const { data, error } = await q;
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!storeId,
   });
 
   // ── Produtos (estoque em R$) ────────────────────────────────────────
   const { data: products = [], isLoading: loadingProducts } = useQuery({
-    queryKey: ["products_stock", storeId],
+    queryKey: ["products_stock", storeId ?? "all"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("products")
-        .select("id, cost_price, stock")
-        .eq("store_id", storeId);
+        .select("id, cost_price, stock");
+      if (storeId) q = q.eq("store_id", storeId);
+      const { data, error } = await q;
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!storeId,
   });
 
   // ── CMV do período (para Ciclo de Estoque) ─────────────────────────
   // Busca em 2 passos para evitar joins complexos
   const { data: periodOrders = [], isLoading: loadingOrders } = useQuery({
-    queryKey: ["orders_ids_period", storeId, days],
+    queryKey: ["orders_ids_period", storeId ?? "all", days],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("orders")
         .select("id")
-        .eq("store_id", storeId)
         .gte("date_created", beginDate.toISOString());
+      if (storeId) q = q.eq("store_id", storeId);
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []).map((o) => o.id);
     },
-    enabled: !!storeId,
   });
 
   const { data: orderItems = [], isLoading: loadingItems } = useQuery({
-    queryKey: ["order_items_cost", storeId, days, periodOrders],
+    queryKey: ["order_items_cost", storeId ?? "all", days, periodOrders],
     queryFn: async () => {
       if (periodOrders.length === 0) return [];
       const { data, error } = await supabase
@@ -109,7 +112,6 @@ export const useCashFlow = (storeId: string, days = 90) => {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!storeId && periodOrders.length >= 0,
   });
 
   const isLoading = loadingReleases || loadingPurchases || loadingProducts || loadingOrders || loadingItems;
