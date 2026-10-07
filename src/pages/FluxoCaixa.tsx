@@ -79,10 +79,16 @@ const FluxoCaixa = () => {
           <Select value={storeId} onValueChange={setStoreId}>
             <SelectTrigger className="w-48"><SelectValue placeholder="Selecionar loja" /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">Todas as lojas</SelectItem>
               {stores.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button onClick={syncPayments} disabled={syncingMp || !storeId} variant="outline">
+          <Button
+            onClick={syncPayments}
+            disabled={syncingMp || !effectiveStoreId}
+            variant="outline"
+            title={effectiveStoreId ? undefined : "Selecione uma loja para sincronizar"}
+          >
             <RefreshCw className={`h-4 w-4 mr-2 ${syncingMp ? "animate-spin" : ""}`} />
             {syncingMp ? "Sincronizando..." : "Sync MP"}
           </Button>
