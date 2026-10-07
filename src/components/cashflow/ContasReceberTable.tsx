@@ -14,6 +14,8 @@ const fmtDt = (d: string) => format(parseISO(d), "dd/MM/yyyy", { locale: ptBR })
 
 export const ContasReceberTable = ({ releases }: Props) => {
   const today = new Date();
+  // Coluna "Loja" só aparece quando há mais de uma loja na visão (ex.: "Todas as lojas")
+  const showStore = new Set(releases.map((r) => r.store_name).filter(Boolean)).size > 1;
 
   if (releases.length === 0) {
     return (
