@@ -22,6 +22,7 @@ export interface ReleaseEvent {
   mp_payment_id: string;
   ml_order_id: string | null;
   order_db_id: string | null;
+  store_id: string | null;
   money_release_date: string;
   money_release_status: string | null;
   net_received_amount: number;
@@ -29,6 +30,7 @@ export interface ReleaseEvent {
   date_approved: string | null;
   installments: number;
   payment_method_id: string | null;
+  store_name?: string;
 }
 
 export const useCashFlow = (storeId: string | undefined, days = 90) => {
@@ -43,7 +45,7 @@ export const useCashFlow = (storeId: string | undefined, days = 90) => {
       let q = (supabase as any)
         .from("payments_releases")
         .select(
-          "mp_payment_id, ml_order_id, order_db_id, money_release_date, money_release_status, " +
+          "mp_payment_id, ml_order_id, order_db_id, store_id, money_release_date, money_release_status, " +
           "net_received_amount, transaction_amount, date_approved, installments, payment_method_id"
         );
       if (storeId) q = q.eq("store_id", storeId);
