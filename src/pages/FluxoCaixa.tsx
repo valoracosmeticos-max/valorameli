@@ -117,29 +117,38 @@ const FluxoCaixa = () => {
             <CicloChart indicators={indicators} />
 
             {/* Tabs: Calendário / Contas a Receber */}
-            <Tabs defaultValue="calendario">
-              <TabsList>
-                <TabsTrigger value="calendario">Calendário de Recebimentos</TabsTrigger>
-                <TabsTrigger value="tabela">Detalhamento</TabsTrigger>
-              </TabsList>
-              <TabsContent value="calendario" className="mt-4">
-                {upcomingReleases.length === 0 ? (
-                  <Card className="shadow-soft border-border/60">
-                    <CardHeader><CardTitle>Calendário de Recebimentos</CardTitle></CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground text-center py-8">
-                        Nenhum recebimento futuro encontrado. Clique em "Sync MP" para importar os pagamentos do Mercado Pago.
-                      </p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <CalendarioRecebimentos releases={upcomingReleases} />
-                )}
-              </TabsContent>
-              <TabsContent value="tabela" className="mt-4">
-                <ContasReceberTable releases={upcomingReleases} />
-              </TabsContent>
-            </Tabs>
+            {(() => {
+              const storeNames = new Map(stores.map((s) => [s.id, s.name]));
+              const releases = upcomingReleases.map((r) => ({
+                ...r,
+                store_name: r.store_id ? storeNames.get(r.store_id) : undefined,
+              }));
+              return (
+                <Tabs defaultValue="calendario">
+                  <TabsList>
+                    <TabsTrigger value="calendario">Calendário de Recebimentos</TabsTrigger>
+                    <TabsTrigger value="tabela">Detalhamento</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="calendario" className="mt-4">
+                    {releases.length === 0 ? (
+                      <Card className="shadow-soft border-border/60">
+                        <CardHeader><CardTitle>Calendário de Recebimentos</CardTitle></CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground text-center py-8">
+                            Nenhum recebimento futuro encontrado. Clique em "Sync MP" para importar os pagamentos do Mercado Pago.
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <CalendarioRecebimentos releases={releases} />
+                    )}
+                  </TabsContent>
+                  <TabsContent value="tabela" className="mt-4">
+                    <ContasReceberTable releases={releases} />
+                  </TabsContent>
+                </Tabs>
+              );
+            })()}
           </TabsContent>
         </Tabs>
       )}
