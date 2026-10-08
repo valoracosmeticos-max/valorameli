@@ -16,19 +16,21 @@ export default defineTool({
   name: "cash_profit_summary",
   title: "Lucro em caixa do mês",
   description:
-    "Visão de fluxo de caixa: lucro (recebido − custo) de cada venda contado na data de liberação do Mercado Pago. Retorna o que já caiu, o que ainda vai cair, o que fica para o mês seguinte, publicidade, custos adicionais e a sobra para gastar no mês.",
+    "Visão de fluxo de caixa: lucro (recebido − custo) de cada venda contado na data de liberação do Mercado Pago, entre 'from' e 'to'. Retorna o que já caiu, o que ainda vai cair, o que fica para depois do período, publicidade, custos adicionais (fixos proporcionais aos dias) e a sobra para gastar.",
   inputSchema: {
-    month: z.string().regex(/^\d{4}-\d{2}$/).describe("Mês no formato yyyy-MM."),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Data inicial de liberação (yyyy-MM-dd)."),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Data final inclusiva de liberação (yyyy-MM-dd)."),
     store_id: z.string().uuid().optional().describe("Filtrar por loja (opcional; omita para todas)."),
-    include_orders: z.boolean().default(false).describe("Incluir a lista de pedidos por data de liberação."),
+    include_orders: z.boolean().default(false).describe("Incluir a lista de pedidos por data de liberação (opcional)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ month, store_id, include_orders }, ctx) => {
+  handler: async ({ from, to, store_id, include_orders }, ctx) => {
+    if (from > to) throw new ToolError("'from' deve ser anterior ou igual a 'to'.");
     const sb = supabaseForUser(ctx);
-    const [y, m] = month.split("-").map(Number);
-    const monthStart = `${month}-01`;
-    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-    const lookback = new Date(Date.UTC(y, m - 1, 1) - 75 * 86400_000).toISOString();
+    const monthStart = from;
+    const monthEnd = to;
+    const periodDays = Math.round((Date.parse(to) - Date.parse(from)) / 86400_000) + 1;
+    const lookback = new Date(Date.parse(from + "T00:00:00Z") - 75 * 86400_000).toISOString();
 
     let storesQ = sb.from("stores").select("id, name");
     let ordersQ = sb
@@ -82,19 +84,19 @@ export default defineTool({
 
     const advertising = (ad.data ?? []).reduce((s: number, a: any) => s + Number(a.amount ?? 0), 0);
     const additional = (ac.data ?? []).reduce((s: number, c: any) => {
-      if (c.cost_type === "fixed") return s + Number(c.amount ?? 0);
+      if (c.cost_type === "fixed") return s + (Number(c.amount ?? 0) * periodDays) / 30;
       return c.cost_date >= monthStart && c.cost_date <= monthEnd ? s + Number(c.amount ?? 0) : s;
     }, 0);
     const total = sum(inMonth);
 
     const summary = {
-      month, today,
-      orders_in_month: inMonth.length,
+      from, to, today,
+      orders_in_period: inMonth.length,
       total_cash_profit: r2(total),
       already_released: r2(sum(inMonth.filter((o) => o.released))),
       pending_release: r2(sum(inMonth.filter((o) => !o.released))),
-      next_month_retained: r2(sum(next)),
-      next_month_orders: next.length,
+      after_period_retained: r2(sum(next)),
+      after_period_orders: next.length,
       advertising: r2(advertising),
       additional_costs: r2(additional),
       net_cash_left: r2(total - advertising - additional),

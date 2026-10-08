@@ -4,6 +4,7 @@
 // Bundled from src/lib/mcp/index.ts by @lovable.dev/mcp-js.
 // src/lib/mcp/index.ts
 import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@3.0.4";
+import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@3.0.4/stacks/supabase";
 
 // src/lib/mcp/tools/list-stores.ts
 import { defineTool, ToolError } from "npm:@lovable.dev/mcp-js@3.0.4";
@@ -182,19 +183,21 @@ var r2 = (n) => Math.round(n * 100) / 100;
 var cash_profit_summary_default = defineTool4({
   name: "cash_profit_summary",
   title: "Lucro em caixa do m\xEAs",
-  description: "Vis\xE3o de fluxo de caixa: lucro (recebido \u2212 custo) de cada venda contado na data de libera\xE7\xE3o do Mercado Pago. Retorna o que j\xE1 caiu, o que ainda vai cair, o que fica para o m\xEAs seguinte, publicidade, custos adicionais e a sobra para gastar no m\xEAs.",
+  description: "Vis\xE3o de fluxo de caixa: lucro (recebido \u2212 custo) de cada venda contado na data de libera\xE7\xE3o do Mercado Pago, entre 'from' e 'to'. Retorna o que j\xE1 caiu, o que ainda vai cair, o que fica para depois do per\xEDodo, publicidade, custos adicionais (fixos proporcionais aos dias) e a sobra para gastar.",
   inputSchema: {
-    month: z3.string().regex(/^\d{4}-\d{2}$/).describe("M\xEAs no formato yyyy-MM."),
+    from: z3.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Data inicial de libera\xE7\xE3o (yyyy-MM-dd)."),
+    to: z3.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Data final inclusiva de libera\xE7\xE3o (yyyy-MM-dd)."),
     store_id: z3.string().uuid().optional().describe("Filtrar por loja (opcional; omita para todas)."),
-    include_orders: z3.boolean().default(false).describe("Incluir a lista de pedidos por data de libera\xE7\xE3o.")
+    include_orders: z3.boolean().default(false).describe("Incluir a lista de pedidos por data de libera\xE7\xE3o (opcional).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ month, store_id, include_orders }, ctx) => {
+  handler: async ({ from, to, store_id, include_orders }, ctx) => {
+    if (from > to) throw new ToolError4("'from' deve ser anterior ou igual a 'to'.");
     const sb = supabaseForUser(ctx);
-    const [y, m] = month.split("-").map(Number);
-    const monthStart = `${month}-01`;
-    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-    const lookback = new Date(Date.UTC(y, m - 1, 1) - 75 * 864e5).toISOString();
+    const monthStart = from;
+    const monthEnd = to;
+    const periodDays = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+    const lookback = new Date(Date.parse(from + "T00:00:00Z") - 75 * 864e5).toISOString();
     let storesQ = sb.from("stores").select("id, name");
     let ordersQ = sb.from("orders").select("id, ml_order_id, store_id, date_created, status, amount_received, order_items(quantity, cost_price)").gte("date_created", lookback).not("status", "in", "(cancelled,refunded)");
     let relQ = sb.from("payments_releases").select("order_db_id, money_release_date, money_release_status").not("order_db_id", "is", null);
@@ -240,19 +243,20 @@ var cash_profit_summary_default = defineTool4({
     const sum = (a) => a.reduce((s, o) => s + o.profit, 0);
     const advertising = (ad.data ?? []).reduce((s, a) => s + Number(a.amount ?? 0), 0);
     const additional = (ac.data ?? []).reduce((s, c) => {
-      if (c.cost_type === "fixed") return s + Number(c.amount ?? 0);
+      if (c.cost_type === "fixed") return s + Number(c.amount ?? 0) * periodDays / 30;
       return c.cost_date >= monthStart && c.cost_date <= monthEnd ? s + Number(c.amount ?? 0) : s;
     }, 0);
     const total = sum(inMonth);
     const summary = {
-      month,
+      from,
+      to,
       today,
-      orders_in_month: inMonth.length,
+      orders_in_period: inMonth.length,
       total_cash_profit: r2(total),
       already_released: r2(sum(inMonth.filter((o) => o.released))),
       pending_release: r2(sum(inMonth.filter((o) => !o.released))),
-      next_month_retained: r2(sum(next)),
-      next_month_orders: next.length,
+      after_period_retained: r2(sum(next)),
+      after_period_orders: next.length,
       advertising: r2(advertising),
       additional_costs: r2(additional),
       net_cash_left: r2(total - advertising - additional),
@@ -264,18 +268,76 @@ var cash_profit_summary_default = defineTool4({
 
 // src/lib/mcp/index.ts
 var projectRef = "bulaobebfuruerltzbbe";
-var mcp_default = defineMcp({
-  name: "erp-valora-meli",
-  title: "ERP Valora Meli",
-  version: "0.1.0",
-  instructions: "ERP de vendas das lojas do Mercado Livre. Use `list_stores` para ver as lojas, `list_orders` para pedidos de um per\xEDodo e `sales_summary` para faturamento, custos e lucro (compet\xEAncia), e `cash_profit_summary` para o lucro em caixa do m\xEAs (j\xE1 caiu, vai cair, sobra). Datas em yyyy-MM-dd, fuso de Bras\xEDlia.",
+var NAME = "erp-valora-meli";
+var TITLE = "ERP Valora Meli";
+var VERSION = "0.1.0";
+var INSTRUCTIONS = "ERP de vendas das lojas do Mercado Livre. Use `list_stores` para ver as lojas, `list_orders` para pedidos de um per\xEDodo, `sales_summary` para faturamento, custos e lucro (compet\xEAncia) e `cash_profit_summary` para o lucro em caixa por data de libera\xE7\xE3o (j\xE1 caiu, vai cair, sobra). Datas em yyyy-MM-dd, fuso de Bras\xEDlia.";
+var tools = [list_stores_default, list_orders_default, sales_summary_default, cash_profit_summary_default];
+var mcp = defineMcp({
+  name: NAME,
+  title: TITLE,
+  version: VERSION,
+  instructions: INSTRUCTIONS,
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated"
   }),
-  tools: [list_stores_default, list_orders_default, sales_summary_default, cash_profit_summary_default]
+  tools
 });
+var mcp_default = mcp;
+var D = globalThis.Deno;
+async function sha256(s) {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+}
+async function constantTimeEqual(a, b) {
+  const [ha, hb] = await Promise.all([sha256(a), sha256(b)]);
+  let diff = 0;
+  for (let i = 0; i < ha.length; i++) diff |= ha[i] ^ hb[i];
+  return diff === 0;
+}
+async function isStaticKey(req) {
+  const expected = D?.env?.get?.("MCP_API_KEY")?.trim();
+  if (!expected) return false;
+  const header = req.headers.get("authorization") ?? "";
+  const m = /^Bearer\s+(.+)$/i.exec(header);
+  if (!m) return false;
+  const token = m[1].trim();
+  return constantTimeEqual(token, expected);
+}
+if (D?.serve) {
+  const serviceKey = () => D.env?.get?.("SUPABASE_SERVICE_ROLE_KEY");
+  const readOnlyTools = tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => ({
+    ...t,
+    handler: (args, ctx) => {
+      const key = serviceKey();
+      if (!key) throw new Error("Servidor sem credencial de leitura configurada.");
+      const keyCtx = Object.create(ctx);
+      keyCtx.getToken = () => key;
+      return t.handler(args, keyCtx);
+    }
+  }));
+  const keyMcp = defineMcp({
+    name: NAME,
+    title: TITLE,
+    version: VERSION,
+    instructions: INSTRUCTIONS,
+    tools: readOnlyTools
+  });
+  const keyHandler = createSupabaseHandler(keyMcp, { functionName: "mcp" });
+  const originalServe = D.serve.bind(D);
+  D.serve = (...args) => {
+    const idx = args.findIndex((a) => typeof a === "function");
+    if (idx >= 0) {
+      const oauthHandler = args[idx];
+      args[idx] = async (req, info) => {
+        if (await isStaticKey(req)) return keyHandler(req);
+        return oauthHandler(req, info);
+      };
+    }
+    return originalServe(...args);
+  };
+}
 
 // lovable-mcp-supabase-entry.ts
-import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@3.0.4/stacks/supabase";
-Deno.serve(createSupabaseHandler(mcp_default, { functionName: "mcp" }));
+import { createSupabaseHandler as createSupabaseHandler2 } from "npm:@lovable.dev/mcp-js@3.0.4/stacks/supabase";
+Deno.serve(createSupabaseHandler2(mcp_default, { functionName: "mcp" }));
