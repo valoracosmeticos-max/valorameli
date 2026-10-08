@@ -182,19 +182,21 @@ var r2 = (n) => Math.round(n * 100) / 100;
 var cash_profit_summary_default = defineTool4({
   name: "cash_profit_summary",
   title: "Lucro em caixa do m\xEAs",
-  description: "Vis\xE3o de fluxo de caixa: lucro (recebido \u2212 custo) de cada venda contado na data de libera\xE7\xE3o do Mercado Pago. Retorna o que j\xE1 caiu, o que ainda vai cair, o que fica para o m\xEAs seguinte, publicidade, custos adicionais e a sobra para gastar no m\xEAs.",
+  description: "Vis\xE3o de fluxo de caixa: lucro (recebido \u2212 custo) de cada venda contado na data de libera\xE7\xE3o do Mercado Pago, entre 'from' e 'to'. Retorna o que j\xE1 caiu, o que ainda vai cair, o que fica para depois do per\xEDodo, publicidade, custos adicionais (fixos proporcionais aos dias) e a sobra para gastar.",
   inputSchema: {
-    month: z3.string().regex(/^\d{4}-\d{2}$/).describe("M\xEAs no formato yyyy-MM."),
+    from: z3.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Data inicial de libera\xE7\xE3o (yyyy-MM-dd)."),
+    to: z3.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Data final inclusiva de libera\xE7\xE3o (yyyy-MM-dd)."),
     store_id: z3.string().uuid().optional().describe("Filtrar por loja (opcional; omita para todas)."),
-    include_orders: z3.boolean().default(false).describe("Incluir a lista de pedidos por data de libera\xE7\xE3o.")
+    include_orders: z3.boolean().default(false).describe("Incluir a lista de pedidos por data de libera\xE7\xE3o (opcional).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ month, store_id, include_orders }, ctx) => {
+  handler: async ({ from, to, store_id, include_orders }, ctx) => {
+    if (from > to) throw new ToolError4("'from' deve ser anterior ou igual a 'to'.");
     const sb = supabaseForUser(ctx);
-    const [y, m] = month.split("-").map(Number);
-    const monthStart = `${month}-01`;
-    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-    const lookback = new Date(Date.UTC(y, m - 1, 1) - 75 * 864e5).toISOString();
+    const monthStart = from;
+    const monthEnd = to;
+    const periodDays = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+    const lookback = new Date(Date.parse(from + "T00:00:00Z") - 75 * 864e5).toISOString();
     let storesQ = sb.from("stores").select("id, name");
     let ordersQ = sb.from("orders").select("id, ml_order_id, store_id, date_created, status, amount_received, order_items(quantity, cost_price)").gte("date_created", lookback).not("status", "in", "(cancelled,refunded)");
     let relQ = sb.from("payments_releases").select("order_db_id, money_release_date, money_release_status").not("order_db_id", "is", null);
@@ -240,19 +242,20 @@ var cash_profit_summary_default = defineTool4({
     const sum = (a) => a.reduce((s, o) => s + o.profit, 0);
     const advertising = (ad.data ?? []).reduce((s, a) => s + Number(a.amount ?? 0), 0);
     const additional = (ac.data ?? []).reduce((s, c) => {
-      if (c.cost_type === "fixed") return s + Number(c.amount ?? 0);
+      if (c.cost_type === "fixed") return s + Number(c.amount ?? 0) * periodDays / 30;
       return c.cost_date >= monthStart && c.cost_date <= monthEnd ? s + Number(c.amount ?? 0) : s;
     }, 0);
     const total = sum(inMonth);
     const summary = {
-      month,
+      from,
+      to,
       today,
-      orders_in_month: inMonth.length,
+      orders_in_period: inMonth.length,
       total_cash_profit: r2(total),
       already_released: r2(sum(inMonth.filter((o) => o.released))),
       pending_release: r2(sum(inMonth.filter((o) => !o.released))),
-      next_month_retained: r2(sum(next)),
-      next_month_orders: next.length,
+      after_period_retained: r2(sum(next)),
+      after_period_orders: next.length,
       advertising: r2(advertising),
       additional_costs: r2(additional),
       net_cash_left: r2(total - advertising - additional),
