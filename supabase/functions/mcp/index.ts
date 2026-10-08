@@ -4,6 +4,7 @@
 // Bundled from src/lib/mcp/index.ts by @lovable.dev/mcp-js.
 // src/lib/mcp/index.ts
 import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@3.0.4";
+import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@3.0.4/stacks/supabase";
 
 // src/lib/mcp/tools/list-stores.ts
 import { defineTool, ToolError } from "npm:@lovable.dev/mcp-js@3.0.4";
@@ -267,18 +268,76 @@ var cash_profit_summary_default = defineTool4({
 
 // src/lib/mcp/index.ts
 var projectRef = "bulaobebfuruerltzbbe";
-var mcp_default = defineMcp({
-  name: "erp-valora-meli",
-  title: "ERP Valora Meli",
-  version: "0.1.0",
-  instructions: "ERP de vendas das lojas do Mercado Livre. Use `list_stores` para ver as lojas, `list_orders` para pedidos de um per\xEDodo e `sales_summary` para faturamento, custos e lucro (compet\xEAncia), e `cash_profit_summary` para o lucro em caixa do m\xEAs (j\xE1 caiu, vai cair, sobra). Datas em yyyy-MM-dd, fuso de Bras\xEDlia.",
+var NAME = "erp-valora-meli";
+var TITLE = "ERP Valora Meli";
+var VERSION = "0.1.0";
+var INSTRUCTIONS = "ERP de vendas das lojas do Mercado Livre. Use `list_stores` para ver as lojas, `list_orders` para pedidos de um per\xEDodo, `sales_summary` para faturamento, custos e lucro (compet\xEAncia) e `cash_profit_summary` para o lucro em caixa por data de libera\xE7\xE3o (j\xE1 caiu, vai cair, sobra). Datas em yyyy-MM-dd, fuso de Bras\xEDlia.";
+var tools = [list_stores_default, list_orders_default, sales_summary_default, cash_profit_summary_default];
+var mcp = defineMcp({
+  name: NAME,
+  title: TITLE,
+  version: VERSION,
+  instructions: INSTRUCTIONS,
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated"
   }),
-  tools: [list_stores_default, list_orders_default, sales_summary_default, cash_profit_summary_default]
+  tools
 });
+var mcp_default = mcp;
+var D = globalThis.Deno;
+async function sha256(s) {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+}
+async function constantTimeEqual(a, b) {
+  const [ha, hb] = await Promise.all([sha256(a), sha256(b)]);
+  let diff = 0;
+  for (let i = 0; i < ha.length; i++) diff |= ha[i] ^ hb[i];
+  return diff === 0;
+}
+async function isStaticKey(req) {
+  const expected = D?.env?.get?.("MCP_API_KEY")?.trim();
+  if (!expected) return false;
+  const header = req.headers.get("authorization") ?? "";
+  const m = /^Bearer\s+(.+)$/i.exec(header);
+  if (!m) return false;
+  const token = m[1].trim();
+  return constantTimeEqual(token, expected);
+}
+if (D?.serve) {
+  const serviceKey = () => D.env?.get?.("SUPABASE_SERVICE_ROLE_KEY");
+  const readOnlyTools = tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => ({
+    ...t,
+    handler: (args, ctx) => {
+      const key = serviceKey();
+      if (!key) throw new Error("Servidor sem credencial de leitura configurada.");
+      const keyCtx = Object.create(ctx);
+      keyCtx.getToken = () => key;
+      return t.handler(args, keyCtx);
+    }
+  }));
+  const keyMcp = defineMcp({
+    name: NAME,
+    title: TITLE,
+    version: VERSION,
+    instructions: INSTRUCTIONS,
+    tools: readOnlyTools
+  });
+  const keyHandler = createSupabaseHandler(keyMcp, { functionName: "mcp" });
+  const originalServe = D.serve.bind(D);
+  D.serve = (...args) => {
+    const idx = args.findIndex((a) => typeof a === "function");
+    if (idx >= 0) {
+      const oauthHandler = args[idx];
+      args[idx] = async (req, info) => {
+        if (await isStaticKey(req)) return keyHandler(req);
+        return oauthHandler(req, info);
+      };
+    }
+    return originalServe(...args);
+  };
+}
 
 // lovable-mcp-supabase-entry.ts
-import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@3.0.4/stacks/supabase";
-Deno.serve(createSupabaseHandler(mcp_default, { functionName: "mcp" }));
+import { createSupabaseHandler as createSupabaseHandler2 } from "npm:@lovable.dev/mcp-js@3.0.4/stacks/supabase";
+Deno.serve(createSupabaseHandler2(mcp_default, { functionName: "mcp" }));
