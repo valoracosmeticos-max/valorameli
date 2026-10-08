@@ -150,18 +150,113 @@ var sales_summary_default = defineTool3({
     }
     const advertising = (ads ?? []).reduce((a, r) => a + Number(r.amount), 0);
     const profit = received - cost - advertising;
-    const r2 = (n) => Math.round(n * 100) / 100;
+    const r22 = (n) => Math.round(n * 100) / 100;
     const summary = {
       orders: valid.length,
-      revenue: r2(revenue),
-      received: r2(received),
-      ml_fees: r2(fees),
-      shipping: r2(shipping),
-      product_cost: r2(cost),
-      advertising: r2(advertising),
-      profit: r2(profit),
-      margin_pct: revenue ? r2(profit / revenue * 100) : 0,
+      revenue: r22(revenue),
+      received: r22(received),
+      ml_fees: r22(fees),
+      shipping: r22(shipping),
+      product_cost: r22(cost),
+      advertising: r22(advertising),
+      profit: r22(profit),
+      margin_pct: revenue ? r22(profit / revenue * 100) : 0,
       note: "Custos adicionais da aba 'Custos Adicionais' n\xE3o est\xE3o inclu\xEDdos."
+    };
+    return { content: [{ type: "text", text: JSON.stringify(summary) }], structuredContent: { summary } };
+  }
+});
+
+// src/lib/mcp/tools/cash-profit-summary.ts
+import { defineTool as defineTool4, ToolError as ToolError4 } from "npm:@lovable.dev/mcp-js@3.0.4";
+import { z as z3 } from "npm:zod@^3.25.76";
+var BRT_OFFSET_MS = 3 * 36e5;
+var toBrtDate = (iso) => new Date(new Date(iso).getTime() - BRT_OFFSET_MS).toISOString().slice(0, 10);
+var addDays = (ymd, n) => {
+  const d = /* @__PURE__ */ new Date(ymd + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+var estimateDays = (storeName) => /edua/i.test(storeName) ? 30 : 15;
+var r2 = (n) => Math.round(n * 100) / 100;
+var cash_profit_summary_default = defineTool4({
+  name: "cash_profit_summary",
+  title: "Lucro em caixa do m\xEAs",
+  description: "Vis\xE3o de fluxo de caixa: lucro (recebido \u2212 custo) de cada venda contado na data de libera\xE7\xE3o do Mercado Pago. Retorna o que j\xE1 caiu, o que ainda vai cair, o que fica para o m\xEAs seguinte, publicidade, custos adicionais e a sobra para gastar no m\xEAs.",
+  inputSchema: {
+    month: z3.string().regex(/^\d{4}-\d{2}$/).describe("M\xEAs no formato yyyy-MM."),
+    store_id: z3.string().uuid().optional().describe("Filtrar por loja (opcional; omita para todas)."),
+    include_orders: z3.boolean().default(false).describe("Incluir a lista de pedidos por data de libera\xE7\xE3o.")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ month, store_id, include_orders }, ctx) => {
+    const sb = supabaseForUser(ctx);
+    const [y, m] = month.split("-").map(Number);
+    const monthStart = `${month}-01`;
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const lookback = new Date(Date.UTC(y, m - 1, 1) - 75 * 864e5).toISOString();
+    let storesQ = sb.from("stores").select("id, name");
+    let ordersQ = sb.from("orders").select("id, ml_order_id, store_id, date_created, status, amount_received, order_items(quantity, cost_price)").gte("date_created", lookback).not("status", "in", "(cancelled,refunded)");
+    let relQ = sb.from("payments_releases").select("order_db_id, money_release_date, money_release_status").not("order_db_id", "is", null);
+    let adsQ = sb.from("ad_spend").select("amount").gte("charge_date", monthStart).lte("charge_date", monthEnd);
+    if (store_id) {
+      storesQ = storesQ.eq("id", store_id);
+      ordersQ = ordersQ.eq("store_id", store_id);
+      relQ = relQ.eq("store_id", store_id);
+      adsQ = adsQ.eq("store_id", store_id);
+    }
+    const costsQ = sb.from("additional_costs").select("amount, cost_type, cost_date");
+    const [st, od, rl, ad, ac] = await Promise.all([storesQ, ordersQ.limit(5e3), relQ.limit(1e4), adsQ, costsQ]);
+    for (const r of [st, od, rl, ad, ac]) if (r.error) throw new ToolError4(r.error.message);
+    const storeName = new Map((st.data ?? []).map((s) => [s.id, s.name]));
+    const relByOrder = /* @__PURE__ */ new Map();
+    for (const r of rl.data ?? []) {
+      if (!r.money_release_date) continue;
+      const date = toBrtDate(r.money_release_date);
+      const prev = relByOrder.get(r.order_db_id);
+      if (!prev || date > prev.date) relByOrder.set(r.order_db_id, { date, released: r.money_release_status === "released" });
+    }
+    const today = toBrtDate((/* @__PURE__ */ new Date()).toISOString());
+    const all = (od.data ?? []).map((o) => {
+      const name = storeName.get(o.store_id) ?? "\u2014";
+      const received = Number(o.amount_received ?? 0);
+      const cost = (o.order_items ?? []).reduce((s, i) => s + Number(i.cost_price ?? 0) * Number(i.quantity ?? 1), 0);
+      const rel = relByOrder.get(o.id);
+      const release_date = rel?.date ?? addDays(toBrtDate(o.date_created), estimateDays(name));
+      return {
+        ml_order_id: o.ml_order_id,
+        store: name,
+        sale_date: toBrtDate(o.date_created),
+        received: r2(received),
+        cost: r2(cost),
+        profit: r2(received - cost),
+        release_date,
+        confirmed: !!rel,
+        released: rel ? rel.released || release_date <= today : false
+      };
+    });
+    const inMonth = all.filter((o) => o.release_date >= monthStart && o.release_date <= monthEnd).sort((a, b) => a.release_date.localeCompare(b.release_date));
+    const next = all.filter((o) => o.release_date > monthEnd && o.sale_date <= monthEnd);
+    const sum = (a) => a.reduce((s, o) => s + o.profit, 0);
+    const advertising = (ad.data ?? []).reduce((s, a) => s + Number(a.amount ?? 0), 0);
+    const additional = (ac.data ?? []).reduce((s, c) => {
+      if (c.cost_type === "fixed") return s + Number(c.amount ?? 0);
+      return c.cost_date >= monthStart && c.cost_date <= monthEnd ? s + Number(c.amount ?? 0) : s;
+    }, 0);
+    const total = sum(inMonth);
+    const summary = {
+      month,
+      today,
+      orders_in_month: inMonth.length,
+      total_cash_profit: r2(total),
+      already_released: r2(sum(inMonth.filter((o) => o.released))),
+      pending_release: r2(sum(inMonth.filter((o) => !o.released))),
+      next_month_retained: r2(sum(next)),
+      next_month_orders: next.length,
+      advertising: r2(advertising),
+      additional_costs: r2(additional),
+      net_cash_left: r2(total - advertising - additional),
+      ...include_orders ? { orders: inMonth } : {}
     };
     return { content: [{ type: "text", text: JSON.stringify(summary) }], structuredContent: { summary } };
   }
@@ -173,12 +268,12 @@ var mcp_default = defineMcp({
   name: "erp-valora-meli",
   title: "ERP Valora Meli",
   version: "0.1.0",
-  instructions: "ERP de vendas das lojas do Mercado Livre. Use `list_stores` para ver as lojas, `list_orders` para pedidos de um per\xEDodo e `sales_summary` para faturamento, custos e lucro. Datas em yyyy-MM-dd, fuso de Bras\xEDlia.",
+  instructions: "ERP de vendas das lojas do Mercado Livre. Use `list_stores` para ver as lojas, `list_orders` para pedidos de um per\xEDodo e `sales_summary` para faturamento, custos e lucro (compet\xEAncia), e `cash_profit_summary` para o lucro em caixa do m\xEAs (j\xE1 caiu, vai cair, sobra). Datas em yyyy-MM-dd, fuso de Bras\xEDlia.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated"
   }),
-  tools: [list_stores_default, list_orders_default, sales_summary_default]
+  tools: [list_stores_default, list_orders_default, sales_summary_default, cash_profit_summary_default]
 });
 
 // lovable-mcp-supabase-entry.ts
