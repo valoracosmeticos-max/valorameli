@@ -48,7 +48,55 @@ function supabasePublishableKey(): string {
   throw new Error("SUPABASE_PUBLISHABLE_KEY, SUPABASE_PUBLISHABLE_KEYS, or SUPABASE_ANON_KEY is required");
 }
 
+/** Marker set on the tool context when the request was authenticated with the static MCP_API_KEY. */
+export const STATIC_KEY_FLAG = "__mcpStaticKey";
+
+function isJwt(v: string): boolean {
+  return v.split(".").length === 3;
+}
+
+function serviceRoleKey(): string {
+  const direct = configuredEnv(["SUPABASE_SERVICE_ROLE_KEY"]);
+  if (direct) return direct;
+  const keyset = runtimeEnv("SUPABASE_SECRET_KEYS");
+  if (keyset) {
+    try {
+      const parsed = JSON.parse(keyset) as Record<string, unknown>;
+      const key = [parsed.default, ...Object.values(parsed)].find(
+        (v): v is string => typeof v === "string" && v.trim().length > 0,
+      );
+      if (key) return key.trim();
+    } catch {
+      // ignore
+    }
+  }
+  throw new Error("Servidor sem credencial de leitura configurada.");
+}
+
+/**
+ * Service-role client for static-key requests. Never forwards the caller's
+ * Bearer and never sends a non-JWT key as Authorization (which the API would
+ * try to decode as a JWT).
+ */
+function supabaseServiceRole() {
+  const key = serviceRoleKey();
+  const safeFetch: typeof fetch = (input, init) => {
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    headers.set("apikey", key);
+    if (isJwt(key)) headers.set("Authorization", `Bearer ${key}`);
+    else headers.delete("Authorization");
+    return fetch(input, { ...init, headers });
+  };
+  return createClient(supabaseProjectUrl(), key, {
+    global: { fetch: safeFetch },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+}
+
 export function supabaseForUser(ctx: ToolContext) {
+  if ((ctx as unknown as Record<string, unknown>)[STATIC_KEY_FLAG] === true) {
+    return supabaseServiceRole();
+  }
   const token = ctx.getToken();
   if (!token) throw new Error("supabaseForUser requires a verified OAuth token");
   return createClient(supabaseProjectUrl(), supabasePublishableKey(), {

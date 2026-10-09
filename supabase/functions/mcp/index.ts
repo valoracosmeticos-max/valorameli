@@ -46,7 +46,44 @@ function supabasePublishableKey() {
   if (legacy) return legacy;
   throw new Error("SUPABASE_PUBLISHABLE_KEY, SUPABASE_PUBLISHABLE_KEYS, or SUPABASE_ANON_KEY is required");
 }
+var STATIC_KEY_FLAG = "__mcpStaticKey";
+function isJwt(v) {
+  return v.split(".").length === 3;
+}
+function serviceRoleKey() {
+  const direct = configuredEnv(["SUPABASE_SERVICE_ROLE_KEY"]);
+  if (direct) return direct;
+  const keyset = runtimeEnv("SUPABASE_SECRET_KEYS");
+  if (keyset) {
+    try {
+      const parsed = JSON.parse(keyset);
+      const key = [parsed.default, ...Object.values(parsed)].find(
+        (v) => typeof v === "string" && v.trim().length > 0
+      );
+      if (key) return key.trim();
+    } catch {
+    }
+  }
+  throw new Error("Servidor sem credencial de leitura configurada.");
+}
+function supabaseServiceRole() {
+  const key = serviceRoleKey();
+  const safeFetch = (input, init) => {
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : void 0));
+    headers.set("apikey", key);
+    if (isJwt(key)) headers.set("Authorization", `Bearer ${key}`);
+    else headers.delete("Authorization");
+    return fetch(input, { ...init, headers });
+  };
+  return createClient(supabaseProjectUrl(), key, {
+    global: { fetch: safeFetch },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  });
+}
 function supabaseForUser(ctx) {
+  if (ctx[STATIC_KEY_FLAG] === true) {
+    return supabaseServiceRole();
+  }
   const token = ctx.getToken();
   if (!token) throw new Error("supabaseForUser requires a verified OAuth token");
   return createClient(supabaseProjectUrl(), supabasePublishableKey(), {
@@ -305,14 +342,15 @@ async function isStaticKey(req) {
   return constantTimeEqual(token, expected);
 }
 if (D?.serve) {
-  const serviceKey = () => D.env?.get?.("SUPABASE_SERVICE_ROLE_KEY");
   const readOnlyTools = tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => ({
     ...t,
     handler: (args, ctx) => {
-      const key = serviceKey();
-      if (!key) throw new Error("Servidor sem credencial de leitura configurada.");
       const keyCtx = Object.create(ctx);
-      keyCtx.getToken = () => key;
+      keyCtx[STATIC_KEY_FLAG] = true;
+      keyCtx.getToken = () => {
+        throw new Error("getToken indispon\xEDvel com chave est\xE1tica.");
+      };
+      keyCtx.getClaims = () => ({});
       return t.handler(args, keyCtx);
     }
   }));

@@ -4,6 +4,7 @@ import listStores from "./tools/list-stores";
 import listOrders from "./tools/list-orders";
 import salesSummary from "./tools/sales-summary";
 import cashProfitSummary from "./tools/cash-profit-summary";
+import { STATIC_KEY_FLAG } from "./supabase";
 
 const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
 
@@ -62,16 +63,18 @@ async function isStaticKey(req: Request): Promise<boolean> {
 }
 
 if (D?.serve) {
-  const serviceKey = () => D.env?.get?.("SUPABASE_SERVICE_ROLE_KEY");
   const readOnlyTools = tools
     .filter((t: any) => t.annotations?.readOnlyHint === true)
     .map((t: any) => ({
       ...t,
       handler: (args: unknown, ctx: any) => {
-        const key = serviceKey();
-        if (!key) throw new Error("Servidor sem credencial de leitura configurada.");
+        // Static key: tools use the read-only service-role client; the Bearer is never decoded.
         const keyCtx = Object.create(ctx);
-        keyCtx.getToken = () => key;
+        keyCtx[STATIC_KEY_FLAG] = true;
+        keyCtx.getToken = () => {
+          throw new Error("getToken indisponível com chave estática.");
+        };
+        keyCtx.getClaims = () => ({});
         return t.handler(args, keyCtx);
       },
     }));
