@@ -91,7 +91,20 @@ if (D?.serve) {
     if (idx >= 0) {
       const oauthHandler = args[idx];
       args[idx] = async (req: Request, info: unknown) => {
-        if (await isStaticKey(req)) return keyHandler(req);
+        const header = req.headers.get("authorization") ?? "";
+        const hasBearer = /^Bearer\s+\S+/i.test(header);
+        if (hasBearer) {
+          // Static key: run read-only tools with the service role, never JWT-decode it.
+          if (await isStaticKey(req)) return keyHandler(req);
+          // Bearer present but not the static key: try OAuth (JWTs contain dots).
+          const token = header.replace(/^Bearer\s+/i, "").trim();
+          if (!token.includes(".")) {
+            return new Response(JSON.stringify({ error: "invalid_token", error_description: "Chave inválida." }), {
+              status: 401,
+              headers: { "content-type": "application/json", "www-authenticate": "Bearer" },
+            });
+          }
+        }
         return oauthHandler(req, info);
       };
     }
