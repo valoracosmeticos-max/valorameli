@@ -87,17 +87,31 @@ const Index = () => {
   }, [items]);
 
   const range = useMemo(() => {
-    if (period === "custom" && customRange?.from) {
-      const from = startOfDay(customRange.from);
-      const to = endOfDay(customRange.to ?? customRange.from);
-      const days = differenceInCalendarDays(to, from) + 1;
-      return { since: from.getTime(), until: to.getTime(), days, from, to };
+    const picked = period === "custom" ? customRange?.from : undefined;
+    if (picked && !isNaN(picked.getTime())) {
+      let from = startOfDay(picked);
+      let to = endOfDay(customRange?.to ?? picked);
+      if (!isNaN(to.getTime()) && to < from) [from, to] = [startOfDay(to), endOfDay(from)];
+      if (!isNaN(to.getTime())) {
+        const days = Math.max(1, differenceInCalendarDays(to, from) + 1);
+        return { since: from.getTime(), until: to.getTime(), days, from, to };
+      }
     }
-    const days = Number(period);
+    const parsed = Number(period);
+    const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
     const to = endOfDay(new Date());
     const from = startOfDay(subDays(new Date(), days - 1));
     return { since: from.getTime(), until: to.getTime(), days, from, to };
   }, [period, customRange]);
+
+  const handlePeriodChange = (v: string) => {
+    setPeriod(v);
+    if (v === "custom" && !customRange?.from) {
+      const now = new Date();
+      setCustomRange({ from: subDays(now, 29), to: now });
+    }
+  };
+
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
@@ -197,6 +211,7 @@ const Index = () => {
 
   // ── Gráficos ────────────────────────────────────────────────────
   const dailyData = useMemo(() => {
+    if (isNaN(range.from.getTime()) || isNaN(range.to.getTime()) || range.to < range.from) return [];
     const days = eachDayOfInterval({ start: range.from, end: range.to });
     const buckets = new Map<string, { date: string; revenue: number; profit: number; pedidos: number }>();
     days.forEach((d) => {
@@ -262,7 +277,7 @@ const Index = () => {
               {stores.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={period} onValueChange={setPeriod}>
+          <Select value={period} onValueChange={handlePeriodChange}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="7">Últimos 7 dias</SelectItem>
