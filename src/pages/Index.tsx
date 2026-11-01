@@ -211,6 +211,7 @@ const Index = () => {
 
   // ── Gráficos ────────────────────────────────────────────────────
   const dailyData = useMemo(() => {
+    if (isNaN(range.from.getTime()) || isNaN(range.to.getTime()) || range.to < range.from) return [];
     const days = eachDayOfInterval({ start: range.from, end: range.to });
     const buckets = new Map<string, { date: string; revenue: number; profit: number; pedidos: number }>();
     days.forEach((d) => {
@@ -276,7 +277,7 @@ const Index = () => {
               {stores.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={period} onValueChange={setPeriod}>
+          <Select value={period} onValueChange={handlePeriodChange}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="7">Últimos 7 dias</SelectItem>
